@@ -1,25 +1,21 @@
-# Copyright (c) 2009-2013 VMware, Inc.
-# Copyright (c) 2012 Piston Cloud Computing, Inc.
+# TODO: write correct copyright here
+# Copyright (c) 2012
 
 module Bosh::AzureCloud
   ##
-  # BOSH OpenStack CPI
+  # BOSH Azure CPI
   class Cloud < Bosh::Cloud
-    include Helpers
 
-    BOSH_APP_DIR = "/var/vcap/bosh"
-    FIRST_DEVICE_NAME_LETTER = "b"
-
-    attr_reader :openstack
+    attr_reader :azure
     attr_reader :registry
     attr_reader :glance
     attr_accessor :logger
 
     ##
-    # Creates a new BOSH OpenStack CPI
+    # Creates a new BOSH Azure CPI
     #
     # @param [Hash] options CPI options
-    # @option options [Hash] openstack OpenStack specific options
+    # @option options [Hash] azure azure specific options
     # @option options [Hash] agent agent options
     # @option options [Hash] registry agent options
     def initialize(options)
@@ -52,7 +48,8 @@ module Bosh::AzureCloud
         :openstack_endpoint_type => @openstack_properties["endpoint_type"]
       }
       begin
-        @openstack = Fog::Compute.new(openstack_params)
+        # @openstack = Fog::Compute.new(openstack_params)
+        
       rescue Exception => e
         @logger.error(e)
         cloud_error("Unable to connect to the OpenStack Compute API. Check task debug log for details.")  

@@ -1,5 +1,16 @@
 ---
-openstack:
+azure:
+  # storage: 
+  #   account: allomov
+  #   access_key: nnbwfy4LinRajzErpfP5tVfNklvFExQSaVRxFwhKM/OgHQW2N1ZzVAGr3IbKbTfCK9HTc36q3oRsB98/l812kw==
+  # servicebus:
+  #   namespace: allomov
+  #   access_key: "AUHLA69dKOm9djgltZ5dta+RHzeZCsDoUiLLhQW6MgQ="
+  #   issuer: owner
+  # management_certificate: /home/lomov/.ssh/azure.pem
+  # subscription_id: "0a0a5b3a-b0fd-4dec-8192-42f9b739fcd6"
+  # management_endpoint: https://management.core.windows.net
+
   auth_url: http://127.0.0.1:5000/v2.0
   username: foo
   api_key: bar

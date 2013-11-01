@@ -20,7 +20,7 @@ Gem::Specification.new do |s|
   s.bindir       = 'bin'
   s.executables  = []
 
-  s.add_dependency 'azure', '~> 0.5.0'
+  # s.add_dependency 'azure', '~> 0.5.0', 
   s.add_dependency 'fog', '~>1.14.0'
   s.add_dependency 'bosh_common', "~>#{version}"
   s.add_dependency 'bosh_cpi', "~>#{version}"
