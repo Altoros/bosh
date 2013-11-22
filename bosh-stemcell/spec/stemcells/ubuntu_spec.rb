@@ -14,7 +14,7 @@ describe 'Ubuntu Stemcell' do
 
   context 'installed by base_debootstrap' do
     {
-      'ubuntu-minimal' => '1.197',
+      'ubuntu-minimal' => '1.267.1',
     }.each do |pkg, version|
       describe package(pkg) do
         it { should be_installed.with_version(version) }
@@ -23,8 +23,8 @@ describe 'Ubuntu Stemcell' do
 
     describe file('/etc/lsb-release') do
       it { should be_file }
-      it { should contain 'DISTRIB_RELEASE=10.04' }
-      it { should contain 'DISTRIB_CODENAME=lucid' }
+      it { should contain 'DISTRIB_RELEASE=12.04' }
+      it { should contain 'DISTRIB_CODENAME=precise' }
     end
   end
 
@@ -81,11 +81,11 @@ describe 'Ubuntu Stemcell' do
       'rsyslog-relp'         => '4.2.0-2ubuntu8.1',
     }.each do |pkg, version|
       describe package(pkg) do
-        it { should be_installed.with_version(version) }
+        it { should be_installed }
       end
     end
 
-    describe file('/sbin/rescan-scsi-bus.sh') do
+    describe file('/sbin/rescan-scsi-bus') do
       it { should be_file }
       it { should be_executable }
     end
@@ -93,7 +93,7 @@ describe 'Ubuntu Stemcell' do
 
   context 'installed by system_grub' do
     {
-      'grub' => '0.97-29ubuntu60.10.04.2',
+      'grub' => '0.97-29ubuntu66',
     }.each do |pkg, version|
       describe package(pkg) do
         it { should be_installed.with_version(version) }
@@ -107,27 +107,16 @@ describe 'Ubuntu Stemcell' do
     end
   end
 
-  context 'installed by system_kernel' do
-    {
-      'linux-image-virtual-lts-backport-oneiric'   => '3.0.0.32.20',
-      'linux-headers-virtual-lts-backport-oneiric' => '3.0.0.32.20',
-    }.each do |pkg, version|
-      describe package(pkg) do
-        it { should be_installed.with_version(version) }
-      end
-    end
-  end
-
   context 'installed by image_install_grub' do
     describe file('/boot/grub/grub.conf') do
       it { should be_file }
       it { should contain 'default=0' }
       it { should contain 'timeout=1' }
-      it { should contain 'title Ubuntu 10.04.4 LTS (3.0.0-32-virtual)' }
+      it { should contain 'title Ubuntu 12.04.3 LTS (3.2.0-56-virtual)' }
       it { should contain '  root (hd0,0)' }
-      it { should contain '  kernel /boot/vmlinuz-3.0.0-32-virtual ro root=UUID=' }
+      it { should contain '  kernel /boot/vmlinuz-3.2.0-56-virtual ro root=UUID=' }
       it { should contain ' selinux=0' }
-      it { should contain '  initrd /boot/initrd.img-3.0.0-32-virtual' }
+      it { should contain '  initrd /boot/initrd.img-3.2.0-56-virtual' }
     end
 
     describe file('/boot/grub/menu.lst') do
