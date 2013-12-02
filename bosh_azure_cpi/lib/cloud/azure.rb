@@ -1,8 +1,10 @@
 # Copyright (c) 2009-2013 VMware, Inc.
 # Copyright (c) 2012 Piston Cloud Computing, Inc.
 
-module Bosh
-  module azureCloud; end
+# TODO: replace this with gem
+require 'azure-sdk/lib/azure' 
+
+module Bosh::AzureCloud 
 end
 
 require "fog"

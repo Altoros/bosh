@@ -49,7 +49,7 @@ module Bosh::AzureCloud
       }
       begin
         # @openstack = Fog::Compute.new(openstack_params)
-        
+        Azure
       rescue Exception => e
         @logger.error(e)
         cloud_error("Unable to connect to the OpenStack Compute API. Check task debug log for details.")  

@@ -149,7 +149,6 @@ PATH
   remote: bosh_azure_cpi
   specs:
     bosh_azure_cpi (1.5.0.pre.3)
-      azure (~> 0.5.0)
       bosh-registry (~> 1.5.0.pre.3)
       bosh_common (~> 1.5.0.pre.3)
       bosh_cpi (~> 1.5.0.pre.3)
