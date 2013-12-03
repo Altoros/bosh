@@ -8,6 +8,8 @@ module Bosh::Stemcell
           Aws.new
         when 'vsphere'
           Vsphere.new
+        when 'azure'
+          Azure.new
         else
           raise ArgumentError.new("invalid infrastructure: #{name}")
       end
@@ -43,6 +45,12 @@ module Bosh::Stemcell
     class Aws < Base
       def initialize
         super(name: 'aws', hypervisor: 'xen', supports_light_stemcell: true, default_disk_size: 2048)
+      end
+    end
+
+    class Azure < Base
+      def initialize
+        super(name: 'azure', hypervisor: 'hypervisor', default_disk_size: 3072)
       end
     end
   end

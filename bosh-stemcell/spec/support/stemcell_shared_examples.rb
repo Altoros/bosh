@@ -19,6 +19,8 @@ shared_examples_for 'a stemcell' do
   end
 
   context 'installed by bosh_micro' do
+    before { pending 'until azure cpi not implemented' }
+
     describe file('/var/vcap/micro/apply_spec.yml') do
       it { should be_file }
       it { should contain 'deployment: micro' }

@@ -24,6 +24,8 @@ module Bosh::Stemcell
           aws_stages
         when Infrastructure::OpenStack then
           openstack_stages
+        when Infrastructure::Azure then
+          azure_stages
         when Infrastructure::Vsphere then
           operating_system.instance_of?(OperatingSystem::Centos) ? hacked_centos_vsphere : vsphere_stages
       end
@@ -80,7 +82,7 @@ module Bosh::Stemcell
         :bosh_ntpdate,
         :bosh_sudoers,
         # Micro BOSH
-        :bosh_micro,
+        # :bosh_micro, # Temporarily disable bosh micro, while azure cpi is not written
         # Install GRUB/kernel/etc
         :system_grub,
         :system_kernel,
@@ -147,6 +149,29 @@ module Bosh::Stemcell
         :image_vsphere_ovf,
         :image_vsphere_prepare_stemcell,
         # Final stemcell
+        :stemcell
+      ]
+    end
+
+    def azure_stages
+      [
+        # # Misc
+        :system_openstack_network,
+        :system_openstack_clock,
+        :system_openstack_modules,
+        :system_azure_agent,
+        :system_parameters,
+        # # Finalization,
+        :bosh_clean,
+        :bosh_harden,
+        :bosh_harden_ssh,
+        :bosh_dpkg_list,
+        # # Image/bootloader
+        :image_create,
+        :image_install_grub,
+        :image_azure_vhd,
+        :image_azure_prepare_stemcell,
+        # # Final stemcell
         :stemcell
       ]
     end
