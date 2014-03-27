@@ -1,34 +1,43 @@
-package action
+package action_test
 
 import (
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	. "bosh/agent/action"
 	fakejobsuper "bosh/jobsupervisor/fakes"
-	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
-func TestStartShouldBeSynchronous(t *testing.T) {
-	_, action := buildStartAction()
-	assert.False(t, action.IsAsynchronous())
-}
+func init() {
+	Describe("Start", func() {
+		var (
+			jobSupervisor *fakejobsuper.FakeJobSupervisor
+			action        StartAction
+		)
 
-func TestStartRunReturnsStarted(t *testing.T) {
-	_, action := buildStartAction()
+		BeforeEach(func() {
+			jobSupervisor = fakejobsuper.NewFakeJobSupervisor()
+			action = NewStart(jobSupervisor)
+		})
 
-	started, err := action.Run()
-	assert.NoError(t, err)
-	assert.Equal(t, "started", started)
-}
+		It("is synchronous", func() {
+			Expect(action.IsAsynchronous()).To(BeFalse())
+		})
 
-func TestStartRunStartsMonitorServices(t *testing.T) {
-	jobSupervisor, action := buildStartAction()
+		It("is not persistent", func() {
+			Expect(action.IsPersistent()).To(BeFalse())
+		})
 
-	_, err := action.Run()
-	assert.NoError(t, err)
-	assert.True(t, jobSupervisor.Started)
-}
+		It("returns started", func() {
+			started, err := action.Run()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(started).To(Equal("started"))
+		})
 
-func buildStartAction() (jobSupervisor *fakejobsuper.FakeJobSupervisor, action startAction) {
-	jobSupervisor = fakejobsuper.NewFakeJobSupervisor()
-	action = newStart(jobSupervisor)
-	return
+		It("starts monitor services", func() {
+			_, err := action.Run()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(jobSupervisor.Started).To(BeTrue())
+		})
+	})
 }

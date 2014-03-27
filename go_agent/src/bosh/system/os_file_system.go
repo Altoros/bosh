@@ -3,6 +3,7 @@ package system
 import (
 	bosherr "bosh/errors"
 	boshlog "bosh/logger"
+	"bytes"
 	"io"
 	"io/ioutil"
 	"os"
@@ -78,9 +79,34 @@ func (fs osFileSystem) Chmod(path string, perm os.FileMode) (err error) {
 	return os.Chmod(path, perm)
 }
 
-func (fs osFileSystem) WriteToFile(path, content string) (written bool, err error) {
-	fs.logger.DebugWithDetails(fs.logTag, "Writing to file %s", path, content)
+func (fs osFileSystem) WriteFileString(path, content string) (err error) {
+	return fs.WriteFile(path, []byte(content))
+}
 
+func (fs osFileSystem) WriteFile(path string, content []byte) (err error) {
+	err = fs.MkdirAll(filepath.Dir(path), os.ModePerm)
+	if err != nil {
+		err = bosherr.WrapError(err, "Creating dir to write file")
+		return
+	}
+
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		err = bosherr.WrapError(err, "Creating file %s", path)
+		return
+	}
+	defer file.Close()
+
+	_, err = file.Write(content)
+	if err != nil {
+		err = bosherr.WrapError(err, "Writing content to file %s", path)
+		return
+	}
+
+	return
+}
+
+func (fs osFileSystem) ConvergeFileContents(path string, content []byte) (written bool, err error) {
 	if fs.filesAreIdentical(content, path) {
 		return
 	}
@@ -98,7 +124,7 @@ func (fs osFileSystem) WriteToFile(path, content string) (written bool, err erro
 	}
 	defer file.Close()
 
-	_, err = file.WriteString(content)
+	_, err = file.Write(content)
 	if err != nil {
 		err = bosherr.WrapError(err, "Writing content to file %s", path)
 		return
@@ -108,7 +134,17 @@ func (fs osFileSystem) WriteToFile(path, content string) (written bool, err erro
 	return
 }
 
-func (fs osFileSystem) ReadFile(path string) (content string, err error) {
+func (fs osFileSystem) ReadFileString(path string) (content string, err error) {
+	bytes, err := fs.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	content = string(bytes)
+	return
+}
+
+func (fs osFileSystem) ReadFile(path string) (content []byte, err error) {
 	fs.logger.Debug(fs.logTag, "Reading file %s", path)
 
 	file, err := os.Open(path)
@@ -124,7 +160,7 @@ func (fs osFileSystem) ReadFile(path string) (content string, err error) {
 		return
 	}
 
-	content = string(bytes)
+	content = bytes
 
 	fs.logger.DebugWithDetails(fs.logTag, "Read content", content)
 	return
@@ -177,6 +213,11 @@ func (fs osFileSystem) Symlink(oldPath, newPath string) (err error) {
 	return os.Symlink(oldPath, newPath)
 }
 
+func (fs osFileSystem) ReadLink(symlinkPath string) (targetPath string, err error) {
+	targetPath, err = os.Readlink(symlinkPath)
+	return
+}
+
 func (fs osFileSystem) CopyDirEntries(srcPath, dstPath string) (err error) {
 	_, _, err = fs.runner.RunCommand("cp", "-r", srcPath+"/.", dstPath)
 	return
@@ -214,9 +255,10 @@ func (fs osFileSystem) TempDir(prefix string) (path string, err error) {
 	return ioutil.TempDir("", prefix)
 }
 
-func (fs osFileSystem) RemoveAll(fileOrDir string) {
+func (fs osFileSystem) RemoveAll(fileOrDir string) (err error) {
 	fs.logger.Debug(fs.logTag, "Remove all %s", fileOrDir)
-	os.RemoveAll(fileOrDir)
+	err = os.RemoveAll(fileOrDir)
+	return
 }
 
 func (fs osFileSystem) Open(path string) (file *os.File, err error) {
@@ -229,10 +271,9 @@ func (fs osFileSystem) Glob(pattern string) (matches []string, err error) {
 	return filepath.Glob(pattern)
 }
 
-func (fs osFileSystem) filesAreIdentical(newContent, filePath string) bool {
-	newBytes := []byte(newContent)
+func (fs osFileSystem) filesAreIdentical(newContent []byte, filePath string) bool {
 	existingStat, err := os.Stat(filePath)
-	if err != nil || int64(len(newBytes)) != existingStat.Size() {
+	if err != nil || int64(len(newContent)) != existingStat.Size() {
 		return false
 	}
 
@@ -241,5 +282,5 @@ func (fs osFileSystem) filesAreIdentical(newContent, filePath string) bool {
 		return false
 	}
 
-	return newContent == existingContent
+	return bytes.Compare(newContent, existingContent) == 0
 }

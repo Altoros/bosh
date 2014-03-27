@@ -1,13 +1,15 @@
 package fakes
 
-import boshmbus "bosh/mbus"
+import boshhandler "bosh/handler"
 
 type FakeHandler struct {
 	ReceivedRun     bool
 	ReceivedStart   bool
 	ReceivedStop    bool
 	AgentSubscribed bool
-	Func            boshmbus.HandlerFunc
+	Func            boshhandler.HandlerFunc
+
+	RunFunc func()
 
 	SendToHealthManagerErr     error
 	SendToHealthManagerTopic   string
@@ -21,13 +23,17 @@ func NewFakeHandler() *FakeHandler {
 	return &FakeHandler{}
 }
 
-func (h *FakeHandler) Run(handlerFunc boshmbus.HandlerFunc) (err error) {
+func (h *FakeHandler) Run(handlerFunc boshhandler.HandlerFunc) (err error) {
 	h.ReceivedRun = true
 	h.Func = handlerFunc
+
+	if h.RunFunc != nil {
+		h.RunFunc()
+	}
 	return
 }
 
-func (h *FakeHandler) Start(handlerFunc boshmbus.HandlerFunc) (err error) {
+func (h *FakeHandler) Start(handlerFunc boshhandler.HandlerFunc) (err error) {
 	h.ReceivedStart = true
 	h.Func = handlerFunc
 	return

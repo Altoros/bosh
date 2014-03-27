@@ -3,9 +3,14 @@ require 'bosh/deployer/logger_renderer'
 require 'bosh/deployer/hash_fingerprinter'
 require 'bosh/deployer/director_gateway_error'
 require 'bosh/deployer/ui_messager'
+require 'bosh/deployer/deployments_state'
+require 'bosh/deployer/microbosh_job_instance'
+
+require 'forwardable'
 
 module Bosh::Deployer
   class InstanceManager
+    extend Forwardable
 
     CONNECTION_EXCEPTIONS = [
       Bosh::Agent::Error,
@@ -15,14 +20,16 @@ module Bosh::Deployer
       HTTPClient::ConnectTimeoutError
     ]
 
-    extend Helpers
-    include Helpers
+    DEPLOYMENTS_FILE = 'bosh-deployments.yml'
 
-    attr_reader :state
     attr_accessor :renderer
+    attr_reader :infrastructure, :deployments_state
 
     def self.create(config)
-      plugin_name = cloud_plugin(config)
+      err 'No cloud properties defined' if config['cloud'].nil?
+      err 'No cloud plugin defined' if config['cloud']['plugin'].nil?
+
+      plugin_name = config['cloud']['plugin']
 
       begin
         require "bosh/deployer/instance_manager/#{plugin_name}"
@@ -33,46 +40,45 @@ module Bosh::Deployer
       config_sha1 = Bosh::Deployer::HashFingerprinter.new.sha1(config)
       ui_messager = Bosh::Deployer::UiMessager.for_deployer
 
-      plugin_class = InstanceManager.const_get(plugin_name.capitalize)
-      plugin_class.new(config, config_sha1, ui_messager)
+      new(Config.configure(config), config_sha1, ui_messager, plugin_name)
     end
 
-    def initialize(config, config_sha1, ui_messager)
-      Config.configure(config)
+    def initialize(config, config_sha1, ui_messager, plugin_name)
+      @config = config
 
-      @state_yml = File.join(config['dir'], DEPLOYMENTS_FILE)
-      load_state(config['name'])
+      plugin_class = InstanceManager.const_get(plugin_name.capitalize)
+      @infrastructure = plugin_class.new(self, config, logger)
 
-      Config.uuid = state.uuid
+      @deployments_state = DeploymentsState.load_from_dir(config.base_dir, logger)
+      deployments_state.load_deployment(config.name, infrastructure)
+
+      config.uuid = state.uuid
 
       @config_sha1 = config_sha1
       @ui_messager = ui_messager
-      @renderer = LoggerRenderer.new
+      @renderer = LoggerRenderer.new(logger)
     end
 
-    def cloud
-      Config.cloud
-    end
+    def_delegators(
+      :@deployments_state,
+      :deployments,
+      :state,
+      :exists?,
+    )
 
-    def agent
-      Config.agent
-    end
+    def_delegators(
+      :@config,
+      :cloud,
+      :logger,
+    )
 
-    def logger
-      Config.logger
-    end
-
-    def disk_model
-      nil
-    end
-
-    def instance_model
-      Models::Instance
-    end
-
-    def exists?
-      [state.vm_cid, state.stemcell_cid, state.disk_cid].any?
-    end
+    def_delegators(
+      :infrastructure,
+      :check_dependencies,
+      :agent_services_ip,
+      :client_services_ip,
+      :internal_services_ip,
+    )
 
     def step(task)
       renderer.update(:started, task)
@@ -81,17 +87,11 @@ module Bosh::Deployer
       result
     end
 
-    def start
-    end
-
-    def stop
-    end
-
     def with_lifecycle
-      start
+      infrastructure.start
       yield
     ensure
-      stop
+      infrastructure.stop
     end
 
     def create_deployment(stemcell_tgz, stemcell_archive)
@@ -122,7 +122,6 @@ module Bosh::Deployer
       step "Creating VM from #{state.stemcell_cid}" do
         state.vm_cid = create_vm(state.stemcell_cid)
         update_vm_metadata(state.vm_cid, { 'Name' => state.name })
-        discover_bosh_ip
       end
       save_state
 
@@ -141,9 +140,7 @@ module Bosh::Deployer
       unless @apply_spec
         p 'Fetching apply spec'
         step 'Fetching apply spec' do
-          @apply_spec = Specification.new(agent.release_apply_spec)
-          p ['agent.release_apply_spec', agent.release_apply_spec]
-          p ['@apply_spec.inspect', @apply_spec.inspect]
+          @apply_spec = Specification.new(agent.release_apply_spec, config)
         end
       end
 
@@ -209,7 +206,7 @@ module Bosh::Deployer
 
     # rubocop:disable MethodLength
     def create_stemcell(stemcell_tgz)
-      unless is_tgz?(stemcell_tgz)
+      unless File.extname(stemcell_tgz) == '.tgz'
         step 'Using existing stemcell' do
         end
 
@@ -221,13 +218,13 @@ module Bosh::Deployer
           run_command("tar -zxf #{stemcell_tgz} -C #{stemcell}")
         end
 
-        @apply_spec = Specification.load_from_stemcell(stemcell)
+        @apply_spec = Specification.load_from_stemcell(stemcell, config)
 
         # load properties from stemcell manifest
         properties = load_stemcell_manifest(stemcell)
 
         # override with values from the deployment manifest
-        override = Config.cloud_options['properties']['stemcell']
+        override = config.cloud_options['properties']['stemcell']
         properties['cloud_properties'].merge!(override) if override
 
         step 'Uploading stemcell' do
@@ -237,22 +234,15 @@ module Bosh::Deployer
     rescue => e
       logger.err("create stemcell failed: #{e.message}:\n#{e.backtrace.join("\n")}")
       # make sure we clean up the stemcell if something goes wrong
-      delete_stemcell if is_tgz?(stemcell_tgz) && state.stemcell_cid
+      delete_stemcell if File.extname(stemcell_tgz) == '.tgz' && state.stemcell_cid
       raise e
     end
     # rubocop:enable MethodLength
 
     def create_vm(stemcell_cid)
-      resources = Config.resources['cloud_properties']
-      networks = Config.networks
-      env = Config.env
-
-      puts "Bosh::Deployer::InstanceManager#create_vm(#{stemcell_cid})"
-
-      puts "resources: #{resources.inspect}"
-      puts "networks: #{networks.inspect}"
-      puts "env: #{env.inspect}"
-
+      resources = config.resources['cloud_properties']
+      networks = config.networks
+      env = config.env
       cloud.create_vm(state.uuid, stemcell_cid, resources, networks, nil, env)
     end
 
@@ -291,7 +281,7 @@ module Bosh::Deployer
 
     def create_disk
       step 'Create disk' do
-        size = Config.resources['persistent_disk']
+        size = config.resources['persistent_disk']
         state.disk_cid = cloud.create_disk(size, state.vm_cid)
         save_state
       end
@@ -360,9 +350,8 @@ module Bosh::Deployer
       if state.disk_cid.nil?
         create_disk
         attach_disk(state.disk_cid, true)
-      elsif persistent_disk_changed?
-        # ??? maybe some warning because disk will be recreated
-        size = Config.resources['persistent_disk']
+      elsif infrastructure.persistent_disk_changed?
+        size = config.resources['persistent_disk']
 
         # save a reference to the old disk
         old_disk_cid = state.disk_cid
@@ -391,31 +380,39 @@ module Bosh::Deployer
 
       step 'Applying micro BOSH spec' do
         # first update spec with infrastructure specific stuff
-        update_spec(spec)
+        infrastructure.update_spec(spec)
+
         # then update spec with generic changes
-        agent.run_task(:apply, spec.update(bosh_ip, service_ip))
+        spec = spec.update(agent_services_ip, internal_services_ip)
+
+        microbosh_instance = MicroboshJobInstance.new(client_services_ip, config.agent_url, logger)
+        spec = microbosh_instance.render_templates(spec)
+
+        agent.run_task(:apply, spec)
       end
 
       agent_start
     end
 
-    def discover_bosh_ip
-      bosh_ip
+    def save_state
+      deployments_state.save(infrastructure)
     end
 
-    def service_ip
-      bosh_ip
-    end
-
-    def check_dependencies
-      # nothing to check, move on...
+    def agent
+      uri = URI.parse(config.agent_url)
+      user, password = uri.userinfo.split(':', 2)
+      uri.userinfo = nil
+      uri.host = client_services_ip
+      Bosh::Agent::HTTPClient.new(uri.to_s, {
+        'user' => user,
+        'password' => password,
+        'reply_to' => config.uuid,
+      })
     end
 
     private
 
-    def bosh_ip
-      Config.bosh_ip
-    end
+    attr_reader :config
 
     def agent_stop
       step 'Stopping agent services' do
@@ -448,20 +445,17 @@ module Bosh::Deployer
     end
 
     def agent_port
-      URI.parse(Config.cloud_options['properties']['agent']['mbus']).port
+      URI.parse(config.cloud_options['properties']['agent']['mbus']).port
     end
 
     def wait_until_agent_ready
-      remote_tunnel(@registry_port)
+      infrastructure.remote_tunnel
       wait_until_ready('agent') { agent.ping }
     end
 
     def wait_until_director_ready
       port = @apply_spec.director_port
-
-      p [:wait_until_director_ready, "@apply_spec.director_port", @apply_spec.director_port]
-
-      url = "https://#{bosh_ip}:#{port}/info"
+      url = "https://#{client_services_ip}:#{port}/info"
 
       p [:wait_until_director_ready, "url", url]
 
@@ -509,16 +503,6 @@ module Bosh::Deployer
       save_state
     end
 
-    def load_deployments
-      if File.exists?(@state_yml)
-        logger.info("Loading existing deployment data from: #{@state_yml}")
-        Psych.load_file(@state_yml)
-      else
-        logger.info("No existing deployments found (will save to #{@state_yml})")
-        { 'instances' => [], 'disks' => [] }
-      end
-    end
-
     def load_apply_spec(dir)
       load_spec("#{dir}/apply_spec.yml") do
         err "this isn't a micro bosh stemcell - apply_spec.yml missing"
@@ -535,38 +519,6 @@ module Bosh::Deployer
       yield unless File.exist?(file)
       logger.info("Loading yaml from #{file}")
       Psych.load_file(file)
-    end
-
-    def generate_unique_name
-      SecureRandom.uuid
-    end
-
-    def load_state(name)
-      @deployments = load_deployments
-
-      disk_model.insert_multiple(@deployments['disks']) if disk_model
-      instance_model.insert_multiple(@deployments['instances'])
-
-      @state = instance_model.find(name: name)
-      if @state.nil?
-        @state = instance_model.new
-        @state.uuid = "bm-#{generate_unique_name}"
-        @state.name = name
-        @state.stemcell_sha1 = nil
-        @state.save
-      else
-        discover_bosh_ip
-      end
-    end
-
-    def save_state
-      state.save
-      @deployments['instances'] = instance_model.map { |instance| instance.values }
-      @deployments['disks'] = disk_model.map { |disk| disk.values } if disk_model
-
-      File.open(@state_yml, 'w') do |file|
-        file.write(Psych.dump(@deployments))
-      end
     end
 
     def run_command(command)
@@ -613,4 +565,3 @@ module Bosh::Deployer
     end
   end
 end
-

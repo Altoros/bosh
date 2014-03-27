@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'bosh/dev/stemcell_vm'
+require 'bosh/stemcell/build_environment'
 
 module Bosh::Dev
   describe StemcellVm do
@@ -9,6 +10,9 @@ module Bosh::Dev
           vm_name: 'remote',
           infrastructure_name: 'fake-infrastructure_name',
           operating_system_name: 'fake-operating_system_name',
+          agent_name: 'fake-agent_name',
+          os_image_s3_bucket_name: 'fake-bucket',
+          os_image_s3_key: 'fake-key',
         }
       end
 
@@ -17,14 +21,12 @@ module Bosh::Dev
           'CANDIDATE_BUILD_NUMBER' => 'fake-CANDIDATE_BUILD_NUMBER',
           'BOSH_AWS_ACCESS_KEY_ID' => 'fake-BOSH_AWS_ACCESS_KEY_ID',
           'BOSH_AWS_SECRET_ACCESS_KEY' => 'fake-BOSH_AWS_SECRET_ACCESS_KEY',
-          'AWS_ACCESS_KEY_ID_FOR_STEMCELLS_JENKINS_ACCOUNT' =>
-            'fake-AWS_ACCESS_KEY_ID_FOR_STEMCELLS_JENKINS_ACCOUNT',
-          'AWS_SECRET_ACCESS_KEY_FOR_STEMCELLS_JENKINS_ACCOUNT' =>
-            'fake-AWS_SECRET_ACCESS_KEY_FOR_STEMCELLS_JENKINS_ACCOUNT',
         }
       end
 
-      subject(:vm) { StemcellVm.new(options, env) }
+      let(:build_environment) { instance_double('Bosh::Stemcell::BuildEnvironment', stemcell_file: 'fake-stemcell.tgz') }
+
+      subject(:vm) { StemcellVm.new(options, env, build_environment) }
 
       before { Rake::FileUtilsExt.stub(:sh) }
 
@@ -50,52 +52,36 @@ module Bosh::Dev
       end
 
       describe 'publishing the stemcell inside the VM' do
-        def expected_cmd(rake_task_args)
+        def expected_cmd(rake_task_args, stemcell_path)
           strip_heredoc(<<-BASH)
             vagrant ssh -c "
-              set -eu
-              cd /bosh
-              bundle install --local
+              bash -l -c '
+                set -eu
+                cd /bosh
 
-              export CANDIDATE_BUILD_NUMBER='fake-CANDIDATE_BUILD_NUMBER'
-              export BOSH_AWS_ACCESS_KEY_ID='fake-BOSH_AWS_ACCESS_KEY_ID'
-              export BOSH_AWS_SECRET_ACCESS_KEY='fake-BOSH_AWS_SECRET_ACCESS_KEY'
-              export AWS_ACCESS_KEY_ID_FOR_STEMCELLS_JENKINS_ACCOUNT='fake-AWS_ACCESS_KEY_ID_FOR_STEMCELLS_JENKINS_ACCOUNT'
-              export AWS_SECRET_ACCESS_KEY_FOR_STEMCELLS_JENKINS_ACCOUNT='fake-AWS_SECRET_ACCESS_KEY_FOR_STEMCELLS_JENKINS_ACCOUNT'
+                export CANDIDATE_BUILD_NUMBER='fake-CANDIDATE_BUILD_NUMBER'
+                export BOSH_AWS_ACCESS_KEY_ID='fake-BOSH_AWS_ACCESS_KEY_ID'
+                export BOSH_AWS_SECRET_ACCESS_KEY='fake-BOSH_AWS_SECRET_ACCESS_KEY'
 
-              bundle exec rake ci:publish_stemcell[#{rake_task_args}]
+                bundle exec rake stemcell:build[#{rake_task_args}]
+                bundle exec rake ci:publish_stemcell[#{stemcell_path}]
+              '
             " remote
           BASH
         end
 
-        context 'with the ruby agent' do
-          it 'publishes a stemcell inside the VM' do
-            Rake::FileUtilsExt.should_receive(:sh) do |cmd|
-              actual = strip_heredoc(cmd)
-              expected = expected_cmd('fake-infrastructure_name,fake-operating_system_name')
+        it 'publishes a stemcell inside the VM' do
+          Rake::FileUtilsExt.should_receive(:sh) do |cmd|
+            actual = strip_heredoc(cmd)
+            expected = expected_cmd(
+              'fake-infrastructure_name,fake-operating_system_name,fake-agent_name,fake-bucket,fake-key',
+              'fake-stemcell.tgz'
+            )
 
-              expect(actual).to include(expected)
-            end
-
-            vm.publish
-          end
-        end
-
-        context 'with the go agent' do
-          before do
-            options.merge!(agent_name: 'go')
+            expect(actual).to include(expected)
           end
 
-          it 'publishes a stemcell inside the VM' do
-            Rake::FileUtilsExt.should_receive(:sh) do |cmd|
-              actual = strip_heredoc(cmd)
-              expected = expected_cmd('fake-infrastructure_name,fake-operating_system_name,go')
-
-              expect(actual).to include(expected)
-            end
-
-            vm.publish
-          end
+          vm.publish
         end
       end
 

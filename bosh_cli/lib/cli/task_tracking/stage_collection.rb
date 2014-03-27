@@ -9,7 +9,7 @@ module Bosh::Cli::TaskTracking
 
     def update_with_event(event)
       new_stage = Stage.new(event['stage'], event['tags'], event['total'], @callbacks)
-      unless found_stage = @stages.find { |s| s.name == new_stage.name && s.tags == new_stage.tags }
+      unless found_stage = @stages.find { |s| s == new_stage }
         found_stage = new_stage
         @stages << new_stage
       end
@@ -31,14 +31,14 @@ module Bosh::Cli::TaskTracking
 
     def update_with_event(event)
       new_task = Task.new(self, event['task'], event['progress'], @callbacks)
-      unless found_task = @tasks.find { |t| t.name == new_task.name }
+      unless found_task = @tasks.find { |s| s == new_task }
         found_task = new_task
         @tasks << new_task
       end
-      fire_started_callback(event)
+      fire_started_callback if started?
       found_task.update_with_event(event)
-      fire_finished_callback(event)
-      fire_failed_callback(event)
+      fire_finished_callback if finished?(event)
+      fire_failed_callback if failed?(event)
       found_task
     end
 
@@ -55,28 +55,59 @@ module Bosh::Cli::TaskTracking
       total_duration.duration
     end
 
+    def similar?(other)
+      return false unless other.is_a?(Stage)
+      name == other.name
+    end
+
+    def ==(other)
+      return false unless other.is_a?(Stage)
+      [name, tags, total] == [other.name, other.tags, other.total]
+    end
+
     private
 
-    def fire_started_callback(event)
-      if event['state'] == 'started' && event['index'] == 1
-        callback = @callbacks[:stage_started]
-        callback.call(self) if callback
-      end
+    def fire_started_callback
+      callback = @callbacks[:stage_started]
+      callback.call(self) if callback
     end
 
-    def fire_finished_callback(event)
-      if event['state'] == 'finished' && ((event['index'] == event['total']) || event['total'].nil?)
-        callback = @callbacks[:stage_finished]
-        callback.call(self) if callback
-      end
+    def fire_finished_callback
+      callback = @callbacks[:stage_finished]
+      callback.call(self) if callback
     end
 
-    def fire_failed_callback(event)
-      if event['state'] == 'failed'
-        # If there are multiple failures do we need to only fire on the first one?
-        callback = @callbacks[:stage_failed]
-        callback.call(self) if callback
-      end
+    def fire_failed_callback
+      callback = @callbacks[:stage_failed]
+      callback.call(self) if callback
+    end
+
+    def started?
+      @started = true if !@started
+    end
+
+    def finished?(event)
+      seen_all_tasks?(event) && all_tasks_finished?
+    end
+
+    def failed?(event)
+      seen_all_tasks?(event) && all_tasks_done? && any_tasks_failed?
+    end
+
+    def all_tasks_done?
+      tasks.all? { |t| t.done? }
+    end
+
+    def all_tasks_finished?
+      tasks.all? { |t| t.finished? }
+    end
+
+    def any_tasks_failed?
+      tasks.any? { |t| t.failed? }
+    end
+
+    def seen_all_tasks?(event)
+      tasks.size == event['total'] || event['total'].nil?
     end
   end
 
@@ -103,6 +134,23 @@ module Bosh::Cli::TaskTracking
       @total_duration.finished_at = event['time'] if @state == 'finished' || @state == 'failed'
 
       call_state_callback
+    end
+
+    def ==(other)
+      return false unless other.is_a?(Task)
+      [stage, name] == [other.stage, other.name]
+    end
+
+    def done?
+      %w(failed finished).include?(@state)
+    end
+
+    def failed?
+      @state == 'failed'
+    end
+
+    def finished?
+      @state == 'finished'
     end
 
     private

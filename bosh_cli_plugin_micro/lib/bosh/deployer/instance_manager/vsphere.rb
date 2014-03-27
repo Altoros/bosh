@@ -1,9 +1,17 @@
-# Copyright (c) 2009-2012 VMware, Inc.
+require 'forwardable'
 
 module Bosh::Deployer
   class InstanceManager
-    class Vsphere < InstanceManager
-      def remote_tunnel(port)
+    class Vsphere
+      extend Forwardable
+
+      def initialize(instance_manager, config, logger)
+        @instance_manager = instance_manager
+        @config = config
+        @logger = logger
+      end
+
+      def remote_tunnel
       end
 
       def disk_model
@@ -18,11 +26,30 @@ module Bosh::Deployer
         properties = spec.properties
 
         properties['vcenter'] =
-          Config.spec_properties['vcenter'] ||
-          Config.cloud_options['properties']['vcenters'].first.dup
+          config.spec_properties['vcenter'] ||
+            config.cloud_options['properties']['vcenters'].first.dup
 
         properties['vcenter']['address'] ||= properties['vcenter']['host']
       end
+
+      def check_dependencies
+        if Bosh::Common.which(%w[genisoimage mkisofs]).nil?
+          err("either of 'genisoimage' or 'mkisofs' commands must be present")
+        end
+      end
+
+      def start
+      end
+
+      def stop
+      end
+
+      def_delegators(
+        :config,
+        :internal_services_ip,
+        :agent_services_ip,
+        :client_services_ip,
+      )
 
       # @return [Integer] size in MiB
       def disk_size(cid)
@@ -30,13 +57,16 @@ module Bosh::Deployer
       end
 
       def persistent_disk_changed?
-        Config.resources['persistent_disk'] != disk_size(state.disk_cid)
+        config.resources['persistent_disk'] != disk_size(instance_manager.state.disk_cid)
       end
 
-      def check_dependencies
-        if Bosh::Common.which(%w[genisoimage mkisofs]).nil?
-          err("either of 'genisoimage' or 'mkisofs' commands must be present")
-        end
+      private
+
+      attr_reader :instance_manager, :logger, :config
+
+      FakeRegistry = Struct.new(:port)
+      def registry
+        @registry ||= FakeRegistry.new(nil)
       end
     end
   end

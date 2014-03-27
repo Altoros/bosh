@@ -10,6 +10,10 @@ module Bosh::Stemcell
           Vsphere.new
         when 'gce'
           Gce.new
+        when 'vcloud'
+          Vcloud.new
+        when 'null'
+          NullInfrastructure.new
         else
           raise ArgumentError.new("invalid infrastructure: #{name}")
       end
@@ -28,6 +32,19 @@ module Bosh::Stemcell
       def light?
         @supports_light_stemcell
       end
+
+      def ==(other)
+        name == other.name &&
+          hypervisor == other.hypervisor &&
+          default_disk_size == other.default_disk_size &&
+          light? == other.light?
+      end
+    end
+
+    class NullInfrastructure < Base
+      def initialize
+        super(name: 'null', hypervisor: 'null', default_disk_size: -1)
+      end
     end
 
     class OpenStack < Base
@@ -39,6 +56,12 @@ module Bosh::Stemcell
     class Vsphere < Base
       def initialize
         super(name: 'vsphere', hypervisor: 'esxi', default_disk_size: 3072)
+      end
+    end
+
+    class Vcloud < Base
+      def initialize
+        super(name: 'vcloud', hypervisor: 'esxi', default_disk_size: 3072)
       end
     end
 

@@ -1,18 +1,29 @@
-package action
+package action_test
 
 import (
-	"github.com/stretchr/testify/assert"
-	"testing"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	. "bosh/agent/action"
 )
 
-func TestPingShouldBeSynchronous(t *testing.T) {
-	action := newPing()
-	assert.False(t, action.IsAsynchronous())
-}
+func init() {
+	Describe("Ping", func() {
+		It("is synchronous", func() {
+			action := NewPing()
+			Expect(action.IsAsynchronous()).To(BeFalse())
+		})
 
-func TestPingRunReturnsPong(t *testing.T) {
-	action := newPing()
-	pong, err := action.Run()
-	assert.NoError(t, err)
-	assert.Equal(t, "pong", pong)
+		It("is not persistent", func() {
+			action := NewPing()
+			Expect(action.IsPersistent()).To(BeFalse())
+		})
+
+		It("ping run returns pong", func() {
+			action := NewPing()
+			pong, err := action.Run()
+			Expect(err).ToNot(HaveOccurred())
+			Expect(pong).To(Equal("pong"))
+		})
+	})
 }

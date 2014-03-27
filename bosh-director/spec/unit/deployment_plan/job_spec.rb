@@ -1,24 +1,13 @@
 require 'spec_helper'
 
 describe Bosh::Director::DeploymentPlan::Job do
-  subject(:job)    { described_class.parse(plan, spec) }
+  let(:event_log)  { instance_double('Bosh::Director::EventLog::Log', warn_deprecated: nil) }
+  subject(:job)    { described_class.parse(plan, spec, event_log) }
 
   let(:deployment) { Bosh::Director::Models::Deployment.make }
   let(:plan)       { instance_double('Bosh::Director::DeploymentPlan::Planner', model: deployment) }
   let(:resource_pool) { instance_double('Bosh::Director::DeploymentPlan::ResourcePool', reserve_capacity: nil) }
   let(:network) { instance_double('Bosh::Director::DeploymentPlan::Network') }
-  let(:release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion') }
-
-  let(:spec) do
-    {
-      'name' => 'foobar',
-      'template' => 'foo',
-      'release' => 'appcloud',
-      'resource_pool' => 'dea',
-      'instances' => 1,
-      'networks'  => [{'name' => 'fake-network-name'}],
-    }
-  end
 
   let(:foo_properties) do
     {
@@ -47,9 +36,6 @@ describe Bosh::Director::DeploymentPlan::Job do
   ) }
 
   before do
-    allow(release).to receive(:use_template_named).with('foo').and_return(foo_template)
-    allow(release).to receive(:use_template_named).with('bar').and_return(bar_template)
-
     allow(Bosh::Director::DeploymentPlan::UpdateConfig).to receive(:new)
 
     allow(plan).to receive(:network).and_return(network)
@@ -58,6 +44,25 @@ describe Bosh::Director::DeploymentPlan::Job do
   end
 
   describe '#bind_properties' do
+    let(:release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion') }
+    before do
+      allow(release).to receive(:use_template_named).with('foo').and_return(foo_template)
+      allow(release).to receive(:use_template_named).with('bar').and_return(bar_template)
+    end
+
+    let(:spec) do
+      {
+        'name' => 'foobar',
+        'template' => 'foo',
+        'release' => 'appcloud',
+        'resource_pool' => 'dea',
+        'instances' => 1,
+        'networks'  => [{'name' => 'fake-network-name'}],
+        'properties' => props,
+        'template' => %w(foo bar),
+      }
+    end
+
     let(:props) do
       {
         'cc_url' => 'www.cc.com',
@@ -70,9 +75,6 @@ describe Bosh::Director::DeploymentPlan::Job do
     end
 
     before do
-      spec['properties'] = props
-      spec['template'] = %w(foo bar)
-
       allow(plan).to receive(:properties).and_return(props)
       allow(plan).to receive(:release).with('appcloud').and_return(release)
     end
@@ -124,17 +126,22 @@ describe Bosh::Director::DeploymentPlan::Job do
   end
 
   describe 'property mappings' do
-    let(:foo_properties) {
-      {
-        'db.user' => { 'default' => 'root' },
-        'db.password' => {},
-        'db.host' => { 'default' => 'localhost' },
-        'mem' => { 'default' => 256 },
-      }
-    }
+    let(:release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion') }
+    before do
+      allow(release).to receive(:use_template_named).with('foo').and_return(foo_template)
+    end
 
-    it 'supports property mappings' do
-      props = {
+    let(:foo_properties) do
+      {
+        'db.user' => {'default' => 'root'},
+        'db.password' => {},
+        'db.host' => {'default' => 'localhost'},
+        'mem' => {'default' => 256},
+      }
+    end
+
+    let(:props) do
+      {
         'ccdb' => {
           'user' => 'admin',
           'password' => '12321',
@@ -144,11 +151,23 @@ describe Bosh::Director::DeploymentPlan::Job do
           'max_memory' => 2048
         }
       }
+    end
 
-      spec['properties'] = props
-      spec['property_mappings'] = {'db' => 'ccdb', 'mem' => 'dea.max_memory'}
-      spec['template'] = 'foo'
+    let(:spec) do
+      {
+        'name' => 'foobar',
+        'template' => 'foo',
+        'release' => 'appcloud',
+        'resource_pool' => 'dea',
+        'instances' => 1,
+        'networks' => [{'name' => 'fake-network-name'}],
+        'properties' => props,
+        'property_mappings' => {'db' => 'ccdb', 'mem' => 'dea.max_memory'},
+        'template' => 'foo',
+      }
+    end
 
+    it 'supports property mappings' do
       allow(plan).to receive(:properties).and_return(props)
       expect(plan).to receive(:release).with('appcloud').and_return(release)
 
@@ -168,6 +187,12 @@ describe Bosh::Director::DeploymentPlan::Job do
   end
 
   describe '#validate_package_names_do_not_collide!' do
+    let(:release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion', name: 'release1') }
+    before do
+      allow(release).to receive(:use_template_named).with('foo').and_return(foo_template)
+      allow(release).to receive(:use_template_named).with('bar').and_return(bar_template)
+    end
+
     before { allow(plan).to receive(:properties).and_return({}) }
 
     before { allow(foo_template).to receive(:model).and_return(foo_template_model) }
@@ -221,7 +246,7 @@ describe Bosh::Director::DeploymentPlan::Job do
       before { allow(plan).to receive(:releases).with(no_args).and_return([release, bar_release]) }
 
       before { allow(plan).to receive(:release).with('bar_release').and_return(bar_release) }
-      let(:bar_release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion') }
+      let(:bar_release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion', name: 'bar_release') }
 
       before { allow(bar_release).to receive(:use_template_named).with('bar').and_return(bar_template) }
       let(:bar_template) do
@@ -249,11 +274,190 @@ describe Bosh::Director::DeploymentPlan::Job do
             job.validate_package_names_do_not_collide!
           }.to raise_error(
             Bosh::Director::JobPackageCollision,
-            "Colocated package `same-name' has the same name in multiple releases. " +
-            "BOSH cannot currently colocate two packages with identical names from separate releases.",
+            "Package name collision detected in job `foobar': template `release1/foo' depends on package `release1/same-name',"\
+            " template `bar_release/bar' depends on `bar_release/same-name'. " +
+              'BOSH cannot currently collocate two packages with identical names from separate releases.',
           )
         end
       end
+    end
+  end
+
+  describe '#spec' do
+    let(:release) { instance_double('Bosh::Director::DeploymentPlan::ReleaseVersion') }
+    before do
+      allow(release).to receive(:use_template_named).with('foo').and_return(foo_template)
+    end
+
+    let(:spec) do
+      {
+        'name' => 'job1',
+        'template' => 'foo',
+        'release' => 'release1',
+        'instances' => 1,
+        'resource_pool' => 'dea',
+        'networks'  => [{'name' => 'fake-network-name'}],
+      }
+    end
+
+    before do
+      allow(release).to receive(:name).and_return('cf')
+
+      allow(foo_template).to receive(:version).and_return('200')
+      allow(foo_template).to receive(:sha1).and_return('fake_sha1')
+      allow(foo_template).to receive(:blobstore_id).and_return('blobstore_id_for_foo_template')
+
+      allow(plan).to receive(:releases).with(no_args).and_return([release])
+      allow(plan).to receive(:release).with('release1').and_return(release)
+      allow(plan).to receive(:properties).with(no_args).and_return({})
+    end
+
+    context "when a template has 'logs'" do
+      before do
+        allow(foo_template).to receive(:logs).and_return(
+          {
+            'filter_name1' => 'foo/*',
+          }
+        )
+      end
+
+      it 'contains name, release for the job, and logs spec for each template' do
+        expect(job.spec).to eq(
+          {
+            'name' => 'job1',
+            'templates' => [
+              {
+                'name' => 'foo',
+                'version' => '200',
+                'sha1' => 'fake_sha1',
+                'blobstore_id' => 'blobstore_id_for_foo_template',
+                'logs' => {
+                  'filter_name1' => 'foo/*',
+                },
+              },
+            ],
+            'template' => 'foo',
+            'version' => '200',
+            'sha1' => 'fake_sha1',
+            'blobstore_id' => 'blobstore_id_for_foo_template',
+            'logs' => {
+              'filter_name1' => 'foo/*',
+            }
+          }
+        )
+      end
+    end
+
+    context "when a template does not have 'logs'" do
+      before do
+        allow(foo_template).to receive(:logs)
+      end
+
+      it 'contains name, release and information for each template' do
+        expect(job.spec).to eq(
+          {
+            'name' => 'job1',
+            'templates' =>[
+              {
+                'name' => 'foo',
+                'version' => '200',
+                'sha1' => 'fake_sha1',
+                'blobstore_id' => 'blobstore_id_for_foo_template',
+              },
+            ],
+            'template' => 'foo',
+            'version' => '200',
+            'sha1' => 'fake_sha1',
+            'blobstore_id' => 'blobstore_id_for_foo_template',
+          },
+        )
+      end
+    end
+  end
+
+  describe '#bind_unallocated_vms' do
+    subject(:job) { described_class.new(deployment) }
+
+    it 'allocates a VM to all instances if they are not already bound to a VM' do
+      instance0 = instance_double('Bosh::Director::DeploymentPlan::Instance')
+      job.instances[0] = instance0
+
+      instance1 = instance_double('Bosh::Director::DeploymentPlan::Instance')
+      job.instances[1] = instance1
+
+      [instance0, instance1].each do |instance|
+        expect(instance).to receive(:bind_unallocated_vm).with(no_args).ordered
+        expect(instance).to receive(:sync_state_with_db).with(no_args).ordered
+      end
+
+      job.bind_unallocated_vms
+    end
+  end
+
+  describe '#bind_instance_networks' do
+    subject(:job) { described_class.new(plan) }
+
+    before { job.name = 'job-name' }
+
+    before { job.instances[0] = instance }
+    let(:instance) { instance_double('Bosh::Director::DeploymentPlan::Instance', index: 3) }
+
+    before { allow(plan).to receive(:network).with('network-name').and_return(network) }
+    let(:network) { instance_double('Bosh::Director::DeploymentPlan::Network', name: 'network-name') }
+
+    before do
+      instance.stub(:network_reservations).
+        with(no_args).
+        and_return('network-name' => network_reservation)
+    end
+    let(:network_reservation) { Bosh::Director::NetworkReservation.new_dynamic }
+
+    context 'when network reservation is already reserved' do
+      before { network_reservation.reserved = true }
+
+      it 'does not reserve network reservation again' do
+        expect(network).to_not receive(:reserve!)
+        job.bind_instance_networks
+      end
+    end
+
+    context 'when network reservation is not reserved' do
+      before { network_reservation.reserved = false }
+
+      it 'reserves network reservation with the network' do
+        expect(network).to receive(:reserve!).
+          with(network_reservation, "`job-name/3'")
+
+        job.bind_instance_networks
+      end
+    end
+  end
+
+  describe '#starts_on_deploy?' do
+    subject { described_class.new(plan) }
+
+    context "when lifecycle profile is 'service'" do
+      before { subject.lifecycle = 'service' }
+      its(:starts_on_deploy?) { should be(true) }
+    end
+
+    context "when lifecycle profile is not service" do
+      before { subject.lifecycle = 'other' }
+      its(:starts_on_deploy?) { should be(false) }
+    end
+  end
+
+  describe '#can_run_as_errand?' do
+    subject { described_class.new(plan) }
+
+    context "when lifecycle profile is 'errand'" do
+      before { subject.lifecycle = 'errand' }
+      its(:can_run_as_errand?) { should be(true) }
+    end
+
+    context "when lifecycle profile is not errand" do
+      before { subject.lifecycle = 'other' }
+      its(:can_run_as_errand?) { should be(false) }
     end
   end
 end

@@ -14,7 +14,7 @@ describe 'director.yml.erb.erb' do
         'blobstore' => {
           'address' => '10.10.0.7',
           'port' => 25251,
-          'agent' => { 'user' => 'agent', 'password' => '75d1605f59b60' },
+          'agent' => {'user' => 'agent', 'password' => '75d1605f59b60'},
           'director' => {
             'user' => 'user',
             'password' => 'password'
@@ -61,7 +61,6 @@ describe 'director.yml.erb.erb' do
   end
 
   context 'vsphere' do
-
     before do
       deployment_manifest_fragment['properties']['vcenter'] = {
         'address' => 'vcenter.address',
@@ -72,8 +71,7 @@ describe 'director.yml.erb.erb' do
             'name' => 'vcenter.datacenters.first.name',
             'clusters' => ['cluster1']
           },
-        ] }
-
+        ]}
     end
 
     context 'when vcenter.address begins with a bang and contains quotes' do
@@ -148,7 +146,7 @@ describe 'director.yml.erb.erb' do
     context 'when openstack connection options exist' do
       before do
         deployment_manifest_fragment['properties']['openstack']['connection_options'] = {
-          'option1' => 'true', 'option2' => 'false' }
+          'option1' => 'true', 'option2' => 'false'}
       end
 
       it 'renders openstack connection options correctly' do
@@ -158,7 +156,181 @@ describe 'director.yml.erb.erb' do
 
         parsed = YAML.load(rendered_yaml)
         expect(parsed['cloud']['properties']['openstack']['connection_options']).to eq(
-          { 'option1' => 'true', 'option2' => 'false' })
+          {'option1' => 'true', 'option2' => 'false'})
+      end
+    end
+  end
+
+  context 's3' do
+    before do
+      deployment_manifest_fragment['properties']['aws'] = {
+        'access_key_id' => 'key',
+        'secret_access_key' => 'secret',
+        'default_key_name' => 'default_key_name',
+        'default_security_groups' => 'default_security_groups',
+        'region' => 'region'
+      }
+
+      deployment_manifest_fragment['properties']['registry'] = {
+        'address' => 'aws-registry.example.com',
+        'http' => {
+          'port' => '1234',
+          'user' => 'aws.user',
+          'password' => 'aws.password'
+        }
+      }
+    end
+
+    context 'when the user specifies use_ssl, s3_port, host and s3_force_path_style' do
+      before do
+        deployment_manifest_fragment['properties']['blobstore'] = {
+          'provider' => 's3',
+          'bucket_name' => 'mybucket',
+          'access_key_id' => 'key',
+          'secret_access_key' => 'secret',
+          'use_ssl' => false,
+          's3_port' => 5155,
+          'host' => 'myhost.hostland.edu',
+          's3_force_path_style' => true,
+        }
+      end
+
+      it 'sets the blobstore fields appropriately' do
+        spec = deployment_manifest_fragment
+        rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+        parsed = YAML.load(rendered_yaml)
+
+        expect(parsed['blobstore']['options']).to eq({
+          'bucket_name' => 'mybucket',
+          'access_key_id' => 'key',
+          'secret_access_key' => 'secret',
+          'use_ssl' => false,
+          'port' => 5155,
+          'host' => 'myhost.hostland.edu',
+          's3_force_path_style' => true,
+        })
+      end
+
+      it 'sets endpoint protocol appropriately when use_ssl is true' do
+        deployment_manifest_fragment['properties']['blobstore']['use_ssl'] = true
+        spec = deployment_manifest_fragment
+        rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+        parsed = YAML.load(rendered_yaml)
+
+        expect(parsed['blobstore']['options']).to eq({
+          'bucket_name' => 'mybucket',
+          'access_key_id' => 'key',
+          'secret_access_key' => 'secret',
+          'use_ssl' => true,
+          'port' => 5155,
+          'host' => 'myhost.hostland.edu',
+          's3_force_path_style' => true,
+        })
+      end
+
+      describe 'the agent blobstore' do
+        it 'has the same config as the toplevel blobstore' do
+          spec = deployment_manifest_fragment
+          rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+          parsed = YAML.load(rendered_yaml)
+
+          expect(parsed['cloud']['properties']['agent']['blobstore']['options']).to eq({
+            'bucket_name' => 'mybucket',
+            'access_key_id' => 'key',
+            'secret_access_key' => 'secret',
+            'use_ssl' => false,
+            'port' => 5155,
+            'host' => 'myhost.hostland.edu',
+            's3_force_path_style' => true,
+          })
+        end
+
+        context 'when there are override values for the agent' do
+          before do
+            deployment_manifest_fragment['properties']['agent'] = {
+              'blobstore' => {
+                'access_key_id' => 'agent-key',
+                'secret_access_key' => 'agent-secret',
+              }
+            }
+          end
+
+          it 'uses the override values' do
+            spec = deployment_manifest_fragment
+            rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+            parsed = YAML.load(rendered_yaml)
+
+            expect(parsed['cloud']['properties']['agent']['blobstore']['options']).to eq({
+              'bucket_name' => 'mybucket',
+              'access_key_id' => 'agent-key',
+              'secret_access_key' => 'agent-secret',
+              'use_ssl' => false,
+              'port' => 5155,
+              'host' => 'myhost.hostland.edu',
+              's3_force_path_style' => true,
+            })
+          end
+        end
+      end
+    end
+
+    context 'when the user only specifies bucket, access, and secret' do
+      before do
+        deployment_manifest_fragment['properties']['blobstore'] = {
+          'provider' => 's3',
+          'bucket_name' => 'mybucket',
+          'access_key_id' => 'key',
+          'secret_access_key' => 'secret'
+        }
+      end
+
+      it 'sets the blobstore fields appropriately' do
+        spec = deployment_manifest_fragment
+        rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+        parsed = YAML.load(rendered_yaml)
+
+        expect(parsed['blobstore']['options']).to eq({
+          'bucket_name' => 'mybucket',
+          'access_key_id' => 'key',
+          'secret_access_key' => 'secret',
+        })
+      end
+
+      describe 'the agent blobstore' do
+        it 'has the same config as the toplevel blobstore' do
+          spec = deployment_manifest_fragment
+          rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+          parsed = YAML.load(rendered_yaml)
+
+          expect(parsed['cloud']['properties']['agent']['blobstore']['options']).to eq({
+            'bucket_name' => 'mybucket',
+            'access_key_id' => 'key',
+            'secret_access_key' => 'secret',
+          })
+        end
+
+        context 'when there are override values for the agent' do
+          before do
+            deployment_manifest_fragment['properties']['agent'] = {
+              'blobstore' => {
+                'access_key_id' => 'agent-key',
+                'secret_access_key' => 'agent-secret'
+              }
+            }
+          end
+
+          it 'uses the override values' do
+            spec = deployment_manifest_fragment
+            rendered_yaml = ERB.new(erb_yaml).result(Bosh::Common::TemplateEvaluationContext.new(spec).get_binding)
+            parsed = YAML.load(rendered_yaml)
+
+            expect(parsed['cloud']['properties']['agent']['blobstore']['options']).to eq({
+              'bucket_name' => 'mybucket',
+              'access_key_id' => 'agent-key',
+              'secret_access_key' => 'agent-secret',
+            })
+          end
+        end
       end
     end
   end

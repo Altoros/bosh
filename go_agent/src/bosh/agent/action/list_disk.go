@@ -1,27 +1,36 @@
 package action
 
 import (
+	"errors"
+
 	bosherr "bosh/errors"
+	boshlog "bosh/logger"
 	boshplatform "bosh/platform"
 	boshsettings "bosh/settings"
 )
 
-type listDiskAction struct {
+type ListDiskAction struct {
 	settings boshsettings.Service
 	platform boshplatform.Platform
+	logger   boshlog.Logger
 }
 
-func newListDisk(settings boshsettings.Service, platform boshplatform.Platform) (action listDiskAction) {
+func NewListDisk(settings boshsettings.Service, platform boshplatform.Platform, logger boshlog.Logger) (action ListDiskAction) {
 	action.settings = settings
 	action.platform = platform
+	action.logger = logger
 	return
 }
 
-func (a listDiskAction) IsAsynchronous() bool {
+func (a ListDiskAction) IsAsynchronous() bool {
 	return false
 }
 
-func (a listDiskAction) Run() (value interface{}, err error) {
+func (a ListDiskAction) IsPersistent() bool {
+	return false
+}
+
+func (a ListDiskAction) Run() (value interface{}, err error) {
 	disks := a.settings.GetDisks()
 	volumeIds := []string{}
 
@@ -35,9 +44,15 @@ func (a listDiskAction) Run() (value interface{}, err error) {
 
 		if isMounted {
 			volumeIds = append(volumeIds, volumeId)
+		} else {
+			a.logger.Debug("list-disk-action", "Not mounted", volumeId)
 		}
 	}
 
 	value = volumeIds
 	return
+}
+
+func (a ListDiskAction) Resume() (interface{}, error) {
+	return nil, errors.New("not supported")
 }

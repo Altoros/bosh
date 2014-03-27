@@ -2,7 +2,7 @@ require 'spec_helper'
 
 module Bosh::Director
   describe AgentClient do
-    shared_examples_for 'a long running message' do |message_name|
+    def self.it_acts_as_a_long_running_message(message_name)
       describe "##{message_name}" do
         let(:task) do
           {
@@ -28,20 +28,17 @@ module Bosh::Director
 
         it 'decorates the original send_message implementation' do
           client.public_send(message_name, 'fake', 'args')
-
           expect(client).to have_received(:send_message).with(message_name, 'fake', 'args')
         end
 
         it 'periodically polls the task while it is running' do
           client.public_send(message_name, 'fake', 'args')
-
           expect(client).to have_received(:get_task).with('fake-agent_task_id')
         end
 
         it 'stops polling once the task is no longer running' do
           task['state'] = 'something other than running'
           client.public_send(message_name, 'fake', 'args')
-
           expect(client).not_to have_received(:get_task)
         end
 
@@ -52,29 +49,27 @@ module Bosh::Director
     end
 
     describe 'long running messages' do
-      let(:vm) do
-        instance_double('Bosh::Director::Models::Vm', credentials: nil)
-      end
+      subject(:client) { AgentClient.with_defaults('fake-agent_id') }
 
-      subject(:client) do
-        AgentClient.with_defaults('fake-agent_id')
-      end
+      before { Models::Vm.stub(:find).with(agent_id: 'fake-agent_id').and_return(vm) }
+      let(:vm) { instance_double('Bosh::Director::Models::Vm', credentials: nil) }
 
       before do
-        Models::Vm.stub(:find).with(agent_id: 'fake-agent_id').and_return(vm)
         Config.stub(:nats_rpc)
         Api::ResourceManager.stub(:new)
       end
 
-      include_examples 'a long running message', :prepare
-      include_examples 'a long running message', :apply
-      include_examples 'a long running message', :compile_package
-      include_examples 'a long running message', :drain
-      include_examples 'a long running message', :fetch_logs
-      include_examples 'a long running message', :migrate_disk
-      include_examples 'a long running message', :mount_disk
-      include_examples 'a long running message', :stop
-      include_examples 'a long running message', :unmount_disk
+      it_acts_as_a_long_running_message :prepare
+      it_acts_as_a_long_running_message :apply
+      it_acts_as_a_long_running_message :compile_package
+      it_acts_as_a_long_running_message :drain
+      it_acts_as_a_long_running_message :fetch_logs
+      it_acts_as_a_long_running_message :migrate_disk
+      it_acts_as_a_long_running_message :mount_disk
+      it_acts_as_a_long_running_message :unmount_disk
+      it_acts_as_a_long_running_message :stop
+      it_acts_as_a_long_running_message :run_errand
+      it_acts_as_a_long_running_message :configure_networks
     end
 
     describe 'ping <=> pong' do
@@ -141,10 +136,6 @@ module Bosh::Director
       @test_rpc_args = { arguments: test_args, method: :baz }
     end
 
-    def make(*args)
-      AgentClient.new(*args)
-    end
-
     it 'should send messages and return values' do
       response = { 'value' => 5 }
 
@@ -172,7 +163,7 @@ module Bosh::Director
       rm.should_receive(:delete_resource).with('deadbeef')
       Bosh::Director::Api::ResourceManager.should_receive(:new).and_return(rm)
 
-      client = make('foo', 'bar')
+      client = AgentClient.new('foo', 'bar')
       expected_error_message = "test\na\nb\nc\nan exception"
 
       lambda {
@@ -186,7 +177,7 @@ module Bosh::Director
           with('foo.bar', test_rpc_args).and_return('req_id')
         @nats_rpc.should_receive(:cancel_request).with('req_id')
 
-        client = make('foo', 'bar', timeout: 0.1)
+        client = AgentClient.new('foo', 'bar', timeout: 0.1)
 
         lambda {
           client.baz(*test_args)
@@ -204,7 +195,7 @@ module Bosh::Director
         @nats_rpc.should_receive(:send_request).
           with('foo.bar', args).once.and_raise(Bosh::Director::RpcTimeout)
 
-        client = make('foo', 'bar', client_opts)
+        client = AgentClient.new('foo', 'bar', client_opts)
 
         lambda {
           client.baz
@@ -222,7 +213,7 @@ module Bosh::Director
           retry_methods: { baz: 1 }
         }
 
-        client = make('foo', 'bar', client_opts)
+        client = AgentClient.new('foo', 'bar', client_opts)
 
         lambda {
           client.baz
@@ -240,7 +231,7 @@ module Bosh::Director
           retry_methods: { retry_method: 10 }
         }
 
-        client = make('foo', 'bar', client_opts)
+        client = AgentClient.new('foo', 'bar', client_opts)
 
         lambda {
           client.baz
@@ -248,7 +239,7 @@ module Bosh::Director
       end
 
       describe :wait_until_ready do
-        let(:client) { make('foo', 'bar', timeout: 0.1) }
+        let(:client) { AgentClient.new('foo', 'bar', timeout: 0.1) }
 
         it 'should wait for the agent to be ready' do
           client.should_receive(:ping).and_raise(Bosh::Director::RpcTimeout)
@@ -275,7 +266,6 @@ module Bosh::Director
       end
     end
 
-
     describe 'encryption' do
       it 'should encrypt message' do
         credentials = Bosh::Core::EncryptionHandler.generate_credentials
@@ -298,7 +288,7 @@ module Bosh::Director
           blk.call('encrypted_data' => handler.encrypt(response))
         }
 
-        client = make('foo', 'bar', client_opts)
+        client = AgentClient.new('foo', 'bar', client_opts)
         client.baz(1, 2, 3).should == 5
       end
     end
@@ -321,7 +311,7 @@ module Bosh::Director
         rm.should_receive(:delete_resource).with('cafe')
         Bosh::Director::Api::ResourceManager.should_receive(:new).and_return(rm)
 
-        client = make('foo', 'bar')
+        client = AgentClient.new('foo', 'bar')
         value = client.baz(*test_args)
         value['result']['compile_log'].should == 'blob'
       end
@@ -329,7 +319,7 @@ module Bosh::Director
 
     describe 'formatting RPC remote exceptions' do
       it 'supports old style (String)' do
-        client = make('foo', 'bar')
+        client = AgentClient.new('foo', 'bar')
         client.format_exception('message string').should == 'message string'
       end
 
@@ -348,7 +338,7 @@ module Bosh::Director
 
         expected_error = "something happened\nin zbb.rb:35\nin zbb.rb:26\nFailed to compile: no such file 'zbb'"
 
-        client = make('foo', 'bar')
+        client = AgentClient.new('foo', 'bar')
         client.format_exception(exception).should == expected_error
       end
     end

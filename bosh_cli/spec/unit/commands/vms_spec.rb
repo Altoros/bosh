@@ -12,9 +12,7 @@ describe Bosh::Cli::Command::Vms do
     let(:target) { 'http://example.org' }
 
     context 'with no arguments' do
-      def perform
-        command.list
-      end
+      def perform; command.list; end
 
       context 'when there are multiple deployments' do
         before { director.stub(:list_deployments) { [{ 'name' => 'dep1' }, { 'name' => 'dep2' }] } }
@@ -64,8 +62,8 @@ describe Bosh::Cli::Command::Vms do
         {
           'job_name' => 'job1',
           'index' => 0,
-          'ips' => %w{192.168.0.1},
-          'dns' => %w{index.job.network.deployment.microbosh},
+          'ips' => %w{192.168.0.1 192.168.0.2},
+          'dns' => %w{index.job.network.deployment.microbosh index.job.network2.deployment.microbosh},
           'vitals' => 'vitals',
           'job_state' => 'awesome',
           'resource_pool' => 'rp1',
@@ -103,7 +101,8 @@ describe Bosh::Cli::Command::Vms do
             expect(s.to_s).to include 'job1/0'
             expect(s.to_s).to include 'awesome'
             expect(s.to_s).to include 'rp1'
-            expect(s.to_s).to include '192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.2'
           end
           command.should_receive(:say).with('VMs total: 1')
           perform
@@ -119,7 +118,8 @@ describe Bosh::Cli::Command::Vms do
             expect(s.to_s).to include 'job1/0'
             expect(s.to_s).to include 'awesome'
             expect(s.to_s).to include 'rp1'
-            expect(s.to_s).to include '192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.2'
             expect(s.to_s).to include 'cid1'
             expect(s.to_s).to include 'agent1'
             expect(s.to_s).to include 'paused'
@@ -138,8 +138,10 @@ describe Bosh::Cli::Command::Vms do
             expect(s.to_s).to include 'job1/0'
             expect(s.to_s).to include 'awesome'
             expect(s.to_s).to include 'rp1'
-            expect(s.to_s).to include '192.168.0.1'
-            expect(s.to_s).to include 'index.job.network.deployment.microbosh'
+            expect(s.to_s).to include '| 192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.2'
+            expect(s.to_s).to include '| index.job.network.deployment.microbosh'
+            expect(s.to_s).to include '| index.job.network2.deployment.microbosh'
           end
           command.should_receive(:say).with('VMs total: 1')
           perform
@@ -155,7 +157,8 @@ describe Bosh::Cli::Command::Vms do
             expect(s.to_s).to include 'job1/0'
             expect(s.to_s).to include 'awesome'
             expect(s.to_s).to include 'rp1'
-            expect(s.to_s).to include '192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.1'
+            expect(s.to_s).to include '| 192.168.0.2'
             expect(s.to_s).to include '1%, 2%, 3%'
             expect(s.to_s).to include '4%'
             expect(s.to_s).to include '5%'

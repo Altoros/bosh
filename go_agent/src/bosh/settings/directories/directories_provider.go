@@ -1,18 +1,23 @@
 package directories
 
-import "path/filepath"
+import (
+	"path/filepath"
+)
 
 type DirectoriesProvider struct {
 	baseDir string
 }
 
-func NewDirectoriesProvider(baseDir string) (p DirectoriesProvider) {
-	p.baseDir = baseDir
-	return
+func NewDirectoriesProvider(baseDir string) DirectoriesProvider {
+	return DirectoriesProvider{baseDir}
 }
 
 func (p DirectoriesProvider) BaseDir() string {
 	return p.baseDir
+}
+
+func (p DirectoriesProvider) BoshDir() string {
+	return filepath.Join(p.BaseDir(), "bosh")
 }
 
 func (p DirectoriesProvider) EtcDir() string {
@@ -45,4 +50,12 @@ func (p DirectoriesProvider) MonitJobsDir() string {
 
 func (p DirectoriesProvider) JobsDir() string {
 	return filepath.Join(p.BaseDir(), "jobs")
+}
+
+func (p DirectoriesProvider) MicroStore() string {
+	return filepath.Join(p.BaseDir(), "micro_bosh", "data", "cache")
+}
+
+func (p DirectoriesProvider) SettingsDir() string {
+	return filepath.Join(p.BaseDir(), "bosh", "settings")
 }

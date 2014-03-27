@@ -1,32 +1,35 @@
 module Bosh::Dev
   class StemcellVm
-    def initialize(options, env)
+    def initialize(options, env, build_environment)
       @vm_name = options.fetch(:vm_name)
       @infrastructure_name = options.fetch(:infrastructure_name)
       @operating_system_name = options.fetch(:operating_system_name)
-      @agent_name = options.fetch(:agent_name, 'ruby')
+      @agent_name = options.fetch(:agent_name)
+      @os_image_s3_bucket_name = options.fetch(:os_image_s3_bucket_name)
+      @os_image_s3_key = options.fetch(:os_image_s3_key)
       @env = env
+      @build_environment = build_environment
     end
 
     def publish
-      rake_task_args = "#{infrastructure_name},#{operating_system_name}"
-      rake_task_args += ",#{agent_name}" unless agent_name == 'ruby'
-
       Rake::FileUtilsExt.sh <<-BASH
         set -eu
 
         cd bosh-stemcell
         [ -e .vagrant/machines/remote/aws/id ] && vagrant destroy #{vm_name} --force
         vagrant up #{vm_name} --provider #{provider}
+        [ -e .vagrant/machines/remote/aws/id ] && cat .vagrant/machines/remote/aws/id
 
         vagrant ssh -c "
-          set -eu
-          cd /bosh
-          bundle install --local
+          bash -l -c '
+            set -eu
+            cd /bosh
 
-          #{exports.join("\n          ")}
+            #{exports.join("\n            ")}
 
-          bundle exec rake ci:publish_stemcell[#{rake_task_args}]
+            bundle exec rake stemcell:build[#{build_task_args}]
+            bundle exec rake ci:publish_stemcell[#{stemcell_path}]
+          '
         " #{vm_name}
       BASH
     ensure
@@ -37,9 +40,24 @@ module Bosh::Dev
       BASH
     end
 
+    def stemcell_path
+      build_environment.stemcell_file
+    end
+
+    def build_task_args
+      "#{infrastructure_name},#{operating_system_name},#{agent_name},#{os_image_s3_bucket_name},#{os_image_s3_key}"
+    end
+
     private
 
-    attr_reader :vm_name, :infrastructure_name, :operating_system_name, :agent_name, :env
+    attr_reader :vm_name,
+                :infrastructure_name,
+                :operating_system_name,
+                :agent_name,
+                :os_image_s3_bucket_name,
+                :os_image_s3_key,
+                :env,
+                :build_environment
 
     def provider
       case vm_name
@@ -56,8 +74,6 @@ module Bosh::Dev
         CANDIDATE_BUILD_NUMBER
         BOSH_AWS_ACCESS_KEY_ID
         BOSH_AWS_SECRET_ACCESS_KEY
-        AWS_ACCESS_KEY_ID_FOR_STEMCELLS_JENKINS_ACCOUNT
-        AWS_SECRET_ACCESS_KEY_FOR_STEMCELLS_JENKINS_ACCOUNT
       ].map do |env_var|
         "export #{env_var}='#{env.fetch(env_var)}'"
       end

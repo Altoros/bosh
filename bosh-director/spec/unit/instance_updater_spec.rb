@@ -26,7 +26,7 @@ module Bosh::Director
              stemcell: stemcell,
              cloud_properties: double('CloudProperties'),
              env: {},
-             spec: 'deployment-plan-spec',
+             spec: 'resource_pool_spec',
              release: release)
     end
 
@@ -78,11 +78,11 @@ module Bosh::Director
     end
     let(:cloud) { instance_double('Bosh::Cloud') }
 
-    let(:agent_client) { double('Bosh::Director::AgentClient') }
+    let(:agent_client) { instance_double('Bosh::Director::AgentClient', id: vm_model.agent_id) }
 
     before do
+      AgentClient.stub(:with_defaults).and_return(agent_client)
       Bosh::Director::Config.stub(:cloud).and_return(cloud)
-      subject.stub(:agent) { agent_client }
     end
 
     describe '#report_progress' do
@@ -122,8 +122,8 @@ module Bosh::Director
         end
       end
 
-      before { allow(InstancePreparer).to receive(:new).with(instance, agent_client).and_return(preparer) }
-      let(:preparer) { instance_double('Bosh::Director::InstancePreparer', prepare: nil) }
+      before { allow(InstanceUpdater::Preparer).to receive(:new).with(instance, agent_client).and_return(preparer) }
+      let(:preparer) { instance_double('Bosh::Director::InstanceUpdater::Preparer', prepare: nil) }
 
       before { allow(RenderedJobTemplatesCleaner).to receive(:new).with(instance_model, blobstore).and_return(templates_cleaner) }
       let(:templates_cleaner) { instance_double('Bosh::Director::RenderedJobTemplatesCleaner', clean: nil) }
@@ -154,7 +154,7 @@ module Bosh::Director
         end
 
         it 'does not prepare instance' do
-          Bosh::Director::InstancePreparer.should_not_receive(:new)
+          InstanceUpdater::Preparer.should_not_receive(:new)
           subject.update
         end
 
@@ -212,9 +212,9 @@ module Bosh::Director
 
         before do
           cloud.stub(:configure_networks)
-          agent_client.stub(:prepare_network_change)
+          agent_client.stub(:prepare_configure_networks)
+          agent_client.stub(:configure_networks)
           agent_client.stub(:wait_until_ready)
-          subject.stub(:sleep)
           subject.stub(:stop)
           subject.stub(:update_resource_pool)
           subject.stub(:start!)
@@ -226,7 +226,7 @@ module Bosh::Director
         context 'when a vm does not need to be recreated' do
           it 'should prepare network change' do
             cloud.should_receive(:configure_networks)
-            agent_client.should_receive(:prepare_network_change)
+            agent_client.should_receive(:configure_networks)
             agent_client.should_receive(:wait_until_ready)
 
             subject.update
@@ -238,7 +238,7 @@ module Bosh::Director
             let(:persistent_disk_changed) { false }
 
             it 'should recreate vm' do
-              agent_client.should_not_receive(:prepare_network_change)
+              agent_client.should_not_receive(:configure_networks)
               cloud.should_receive(:configure_networks).and_raise(Bosh::Clouds::NotSupported)
               instance.should_receive(:recreate=)
 
@@ -257,7 +257,7 @@ module Bosh::Director
             end
 
             it 'should recreate vm and attach disk' do
-              agent_client.should_not_receive(:prepare_network_change)
+              agent_client.should_not_receive(:configure_networks)
               cloud.should_receive(:configure_networks).and_raise(Bosh::Clouds::NotSupported)
               instance.should_receive(:recreate=)
               job.should_receive(:persistent_disk).exactly(3).times.and_return(1024)
@@ -533,7 +533,7 @@ module Bosh::Director
     describe '#detach_disk' do
       context 'with no disk attached' do
         it 'should do nothing' do
-          agent_client.should_not_receive(:umount_disk)
+          agent_client.should_not_receive(:unmount_disk)
           cloud.should_not_receive(:detach_disk)
         end
       end
@@ -810,7 +810,13 @@ module Bosh::Director
           subject.should_receive(:delete_vm)
           subject.should_receive(:create_vm).with(new_disk_cid)
           subject.should_receive(:attach_disk)
-          subject.should_receive(:apply_state)
+          subject.should_receive(:apply_state).with(
+            'deployment' => 'deployment',
+            'networks' => instance.network_settings,
+            'resource_pool' => 'resource_pool_spec',
+            'index' => 0,
+            'job' => 'job-spec',
+          )
           instance.should_receive(:current_state=).with(instance_state)
 
           subject.update_resource_pool(new_disk_cid)
@@ -837,13 +843,19 @@ module Bosh::Director
     end
 
     describe '#update_networks' do
+      it 'updates networks' do
+        network_updater = instance_double('Bosh::Director::InstanceUpdater::NetworkUpdater')
+        expect(InstanceUpdater::NetworkUpdater).to receive(:new).
+          with(instance, vm_model, agent_client, be_a(described_class), cloud, Config.logger).
+          and_return(network_updater)
+
+        expect(network_updater).to receive(:update).with(no_args)
+
+        subject.update_networks
+      end
     end
 
     describe '#update_persistent_disk' do
-
-    end
-
-    describe '#update_networks' do
 
     end
 

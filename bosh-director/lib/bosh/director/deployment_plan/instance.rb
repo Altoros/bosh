@@ -19,7 +19,7 @@ module Bosh::Director
       # @return [Hash] A hash of template SHA1 hashes
       attr_accessor :template_hashes
 
-      # @return [DeploymentPlan::RenderedTemplatesArchive]
+      # @return [Bosh::Director::Core::Templates::RenderedTemplatesArchive]
       attr_accessor :rendered_templates_archive
 
       # @return [Hash<String, NetworkReservation>] network reservations
@@ -141,7 +141,7 @@ module Bosh::Director
       ##
       # Take any existing valid network reservations
       #
-      # @param [Hash<String, NetworkReservation] reservations
+      # @param [Hash<String, NetworkReservation>] reservations
       # @return [void]
       def take_network_reservations(reservations)
         reservations.each do |name, provided_reservation|
@@ -162,7 +162,18 @@ module Bosh::Director
         @network_reservations.each do |name, reservation|
           network = @job.deployment.network(name)
           network_settings[name] = network.network_settings(reservation, default_properties[name])
-          network_settings[name]['dns_record_name'] = dns_record_name(name)
+
+          # Temporary hack for running errands.
+          # We need to avoid RunErrand task thinking that
+          # network configuration for errand VM differs
+          # from network configuration for its Instance.
+          #
+          # Obviously this does not account for other changes
+          # in network configuration that errand job might need.
+          # (e.g. errand job desires static ip)
+          if @job.starts_on_deploy?
+            network_settings[name]['dns_record_name'] = dns_record_name(name)
+          end
 
           # Somewhat of a hack: for dynamic networks we might know IP address, Netmask & Gateway
           # if they're featured in agent state, in that case we put them into network spec to satisfy
@@ -345,7 +356,6 @@ module Bosh::Director
       def spec
         spec = {
           'deployment' => @job.deployment.name,
-          'release' => job.release.spec,
           'job' => job.spec,
           'index' => index,
           'networks' => network_settings,

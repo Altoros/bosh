@@ -2,6 +2,7 @@ package monit
 
 import (
 	bosherr "bosh/errors"
+	boshlog "bosh/logger"
 	"code.google.com/p/go-charset/charset"
 	_ "code.google.com/p/go-charset/data"
 	"encoding/xml"
@@ -10,24 +11,33 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"time"
 )
 
 type httpClient struct {
-	host     string
-	username string
-	password string
+	host                string
+	username            string
+	password            string
+	retryAttempts       int
+	delayBetweenRetries time.Duration
+	client              HttpClient
+	logger              boshlog.Logger
 }
 
-func NewHttpClient(host, username, password string) (client httpClient) {
+func NewHttpClient(host, username, password string, client HttpClient, delayBetweenRetries time.Duration, logger boshlog.Logger) httpClient {
 	return httpClient{
-		host:     host,
-		username: username,
-		password: password,
+		host:                host,
+		username:            username,
+		password:            password,
+		client:              client,
+		retryAttempts:       20,
+		delayBetweenRetries: delayBetweenRetries,
+		logger:              logger,
 	}
 }
 
-func (client httpClient) ServicesInGroup(name string) (services []string, err error) {
-	status, err := client.status()
+func (c httpClient) ServicesInGroup(name string) (services []string, err error) {
+	status, err := c.status()
 	if err != nil {
 		err = bosherr.WrapError(err, "Getting status from Monit")
 		return
@@ -42,67 +52,54 @@ func (client httpClient) ServicesInGroup(name string) (services []string, err er
 	return
 }
 
-func (client httpClient) StartService(name string) (err error) {
-	endpoint := client.monitUrl(name)
-	request, err := http.NewRequest("POST", endpoint.String(), strings.NewReader("action=start"))
-	request.SetBasicAuth(client.username, client.password)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+func (c httpClient) StartService(serviceName string) (err error) {
+	response, err := c.makeRequest(c.monitUrl(serviceName), "POST", "action=start")
 
-	httpClient := http.DefaultClient
-	response, err := httpClient.Do(request)
 	if err != nil {
 		err = bosherr.WrapError(err, "Sending start request to monit")
 		return
 	}
 	defer response.Body.Close()
 
-	err = client.validateResponse(response)
+	err = c.validateResponse(response)
 	if err != nil {
-		err = bosherr.WrapError(err, "Starting Monit service %s", name)
+		err = bosherr.WrapError(err, "Starting Monit service %s", serviceName)
 	}
 	return
 }
 
-func (client httpClient) StopService(name string) (err error) {
-	endpoint := client.monitUrl(name)
-	request, err := http.NewRequest("POST", endpoint.String(), strings.NewReader("action=stop"))
-	request.SetBasicAuth(client.username, client.password)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+func (c httpClient) StopService(serviceName string) (err error) {
+	response, err := c.makeRequest(c.monitUrl(serviceName), "POST", "action=stop")
 
-	httpClient := http.DefaultClient
-	response, err := httpClient.Do(request)
 	if err != nil {
 		err = bosherr.WrapError(err, "Sending stop request to monit")
 		return
 	}
 	defer response.Body.Close()
 
-	err = client.validateResponse(response)
+	err = c.validateResponse(response)
 	if err != nil {
-		err = bosherr.WrapError(err, "Stopping Monit service %s", name)
+		err = bosherr.WrapError(err, "Stopping Monit service %s", serviceName)
 	}
 	return
 }
 
-func (client httpClient) Status() (status Status, err error) {
-	return client.status()
+func (c httpClient) Status() (status Status, err error) {
+	return c.status()
 }
 
-func (client httpClient) status() (status status, err error) {
-	endpoint := client.monitUrl("/_status2")
-	endpoint.RawQuery = "format=xml"
-	request, err := http.NewRequest("GET", endpoint.String(), nil)
-	request.SetBasicAuth(client.username, client.password)
+func (c httpClient) status() (status status, err error) {
+	url := c.monitUrl("/_status2")
+	url.RawQuery = "format=xml"
 
-	httpClient := http.DefaultClient
-	response, err := httpClient.Do(request)
+	response, err := c.makeRequest(url, "GET", "")
 	if err != nil {
 		err = bosherr.WrapError(err, "Sending status request to monit")
 		return
 	}
 	defer response.Body.Close()
 
-	err = client.validateResponse(response)
+	err = c.validateResponse(response)
 	if err != nil {
 		err = bosherr.WrapError(err, "Getting monit status")
 		return
@@ -118,16 +115,16 @@ func (client httpClient) status() (status status, err error) {
 	return
 }
 
-func (client httpClient) monitUrl(thing string) (endpoint url.URL) {
+func (c httpClient) monitUrl(thing string) (endpoint url.URL) {
 	endpoint = url.URL{
 		Scheme: "http",
-		Host:   client.host,
+		Host:   c.host,
 		Path:   path.Join("/", thing),
 	}
 	return
 }
 
-func (client httpClient) validateResponse(response *http.Response) (err error) {
+func (c httpClient) validateResponse(response *http.Response) (err error) {
 	if response.StatusCode == http.StatusOK {
 		return
 	}
@@ -138,5 +135,36 @@ func (client httpClient) validateResponse(response *http.Response) (err error) {
 		return
 	}
 	err = bosherr.New("Request failed with %s: %s", response.Status, string(body))
+	return
+}
+
+func (c httpClient) makeRequest(url url.URL, method, requestBody string) (response *http.Response, err error) {
+	c.logger.Debug("http-client", "makeRequest with url %s", url.String())
+	for attempt := 0; attempt < c.retryAttempts; attempt++ {
+		c.logger.Debug("http-client", "Retrying %d", attempt)
+		if response != nil {
+			response.Body.Close()
+		}
+
+		var request *http.Request
+		request, err = http.NewRequest(method, url.String(), strings.NewReader(requestBody))
+		if err != nil {
+			return
+		}
+
+		request.SetBasicAuth(c.username, c.password)
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response, err = c.client.Do(request)
+		if response != nil {
+			c.logger.Debug("http-client", "Got response with status %d", response.StatusCode)
+		}
+
+		if err == nil && response.StatusCode == 200 {
+			return
+		}
+
+		time.Sleep(c.delayBetweenRetries)
+	}
+
 	return
 }

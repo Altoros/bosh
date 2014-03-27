@@ -2,6 +2,8 @@ package infrastructure
 
 import (
 	bosherr "bosh/errors"
+	boshdevicepathresolver "bosh/infrastructure/device_path_resolver"
+	boshplatform "bosh/platform"
 	boshsettings "bosh/settings"
 	boshdir "bosh/settings/directories"
 	boshsys "bosh/system"
@@ -10,17 +12,28 @@ import (
 )
 
 type dummyInfrastructure struct {
-	fs          boshsys.FileSystem
-	dirProvider boshdir.DirectoriesProvider
+	fs                 boshsys.FileSystem
+	dirProvider        boshdir.DirectoriesProvider
+	platform           boshplatform.Platform
+	devicePathResolver boshdevicepathresolver.DevicePathResolver
 }
 
-func newDummyInfrastructure(fs boshsys.FileSystem, dirProvider boshdir.DirectoriesProvider) (inf dummyInfrastructure) {
+func NewDummyInfrastructure(fs boshsys.FileSystem, dirProvider boshdir.DirectoriesProvider,
+	platform boshplatform.Platform,
+	devicePathResolver boshdevicepathresolver.DevicePathResolver) (inf dummyInfrastructure) {
 	inf.fs = fs
 	inf.dirProvider = dirProvider
+	inf.platform = platform
+	inf.devicePathResolver = devicePathResolver
+
 	return
 }
 
-func (inf dummyInfrastructure) SetupSsh(delegate SshSetupDelegate, username string) (err error) {
+func (inf dummyInfrastructure) GetDevicePathResolver() boshdevicepathresolver.DevicePathResolver {
+	return inf.devicePathResolver
+}
+
+func (inf dummyInfrastructure) SetupSsh(username string) (err error) {
 	return
 }
 
@@ -41,6 +54,14 @@ func (inf dummyInfrastructure) GetSettings() (settings boshsettings.Settings, er
 	return
 }
 
-func (inf dummyInfrastructure) SetupNetworking(delegate NetworkingDelegate, networks boshsettings.Networks) (err error) {
+func (inf dummyInfrastructure) SetupNetworking(networks boshsettings.Networks) (err error) {
+	return
+}
+
+func (inf dummyInfrastructure) GetEphemeralDiskPath(devicePath string) (realPath string, found bool) {
+	return inf.platform.NormalizeDiskPath(devicePath)
+}
+
+func (inf dummyInfrastructure) MountPersistentDisk(volumeId string, mountPoint string) (err error) {
 	return
 }

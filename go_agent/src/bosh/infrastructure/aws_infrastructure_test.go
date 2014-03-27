@@ -1,122 +1,22 @@
-package infrastructure
+package infrastructure_test
 
 import (
+	. "bosh/infrastructure"
+	boshdevicepathresolver "bosh/infrastructure/device_path_resolver"
+	boshdisk "bosh/platform/disk"
+	fakeplatform "bosh/platform/fakes"
 	boshsettings "bosh/settings"
+	fakesys "bosh/system/fakes"
 	"fmt"
-	"github.com/stretchr/testify/assert"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
-	"testing"
+	"time"
 )
-
-func TestAwsSetupSsh(t *testing.T) {
-	expectedKey := "some public key"
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.Method, "GET")
-		assert.Equal(t, r.URL.Path, "/latest/meta-data/public-keys/0/openssh-key")
-		w.Write([]byte(expectedKey))
-	})
-
-	ts := httptest.NewServer(handler)
-	defer ts.Close()
-
-	aws := newAwsInfrastructure(ts.URL, &FakeDnsResolver{})
-
-	fakeSshSetupDelegate := &FakeSshSetupDelegate{}
-
-	err := aws.SetupSsh(fakeSshSetupDelegate, "vcap")
-	assert.NoError(t, err)
-
-	assert.Equal(t, fakeSshSetupDelegate.SetupSshPublicKey, expectedKey)
-	assert.Equal(t, fakeSshSetupDelegate.SetupSshUsername, "vcap")
-}
-
-func TestAwsGetSettingsWhenADnsIsNotProvided(t *testing.T) {
-	registryTs, _, expectedSettings := spinUpAwsRegistry(t)
-	defer registryTs.Close()
-
-	expectedUserData := fmt.Sprintf(`{"registry":{"endpoint":"%s"}}`, registryTs.URL)
-
-	metadataTs := spinUpAwsMetadaServer(t, expectedUserData)
-	defer metadataTs.Close()
-
-	aws := newAwsInfrastructure(metadataTs.URL, &FakeDnsResolver{})
-
-	settings, err := aws.GetSettings()
-	assert.NoError(t, err)
-	assert.Equal(t, settings, expectedSettings)
-}
-
-func TestAwsGetSettingsWhenDnsServersAreProvided(t *testing.T) {
-	fakeDnsResolver := &FakeDnsResolver{
-		LookupHostIp: "127.0.0.1",
-	}
-
-	registryTs, registryTsPort, expectedSettings := spinUpAwsRegistry(t)
-	defer registryTs.Close()
-
-	expectedUserData := fmt.Sprintf(`
-		{
-			"registry":{
-				"endpoint":"http://the.registry.name:%s"
-			},
-			"dns":{
-				"nameserver": ["8.8.8.8", "9.9.9.9"]
-			}
-		}`,
-		registryTsPort)
-
-	metadataTs := spinUpAwsMetadaServer(t, expectedUserData)
-	defer metadataTs.Close()
-
-	aws := newAwsInfrastructure(metadataTs.URL, fakeDnsResolver)
-
-	settings, err := aws.GetSettings()
-	assert.NoError(t, err)
-	assert.Equal(t, settings, expectedSettings)
-	assert.Equal(t, fakeDnsResolver.LookupHostHost, "the.registry.name")
-	assert.Equal(t, fakeDnsResolver.LookupHostDnsServers, []string{"8.8.8.8", "9.9.9.9"})
-}
-
-func TestAwsSetupNetworking(t *testing.T) {
-	fakeDnsResolver := &FakeDnsResolver{}
-	aws := newAwsInfrastructure("", fakeDnsResolver)
-	fakeDelegate := &FakeNetworkingDelegate{}
-	networks := boshsettings.Networks{"bosh": boshsettings.Network{}}
-
-	aws.SetupNetworking(fakeDelegate, networks)
-
-	assert.Equal(t, fakeDelegate.SetupDhcpNetworks, networks)
-}
-
-// Fake Ssh Setup Delegate
-
-type FakeSshSetupDelegate struct {
-	SetupSshPublicKey string
-	SetupSshUsername  string
-}
-
-func (d *FakeSshSetupDelegate) SetupSsh(publicKey, username string) (err error) {
-	d.SetupSshPublicKey = publicKey
-	d.SetupSshUsername = username
-	return
-}
-
-// Fake Networking Delegate
-
-type FakeNetworkingDelegate struct {
-	SetupDhcpNetworks boshsettings.Networks
-}
-
-func (d *FakeNetworkingDelegate) SetupDhcp(networks boshsettings.Networks) (err error) {
-	d.SetupDhcpNetworks = networks
-	return
-}
-
-// Fake Dns Resolver
 
 type FakeDnsResolver struct {
 	LookupHostIp         string
@@ -131,132 +31,328 @@ func (res *FakeDnsResolver) LookupHost(dnsServers []string, host string) (ip str
 	return
 }
 
-// Server methods
+func init() {
+	var (
+		platform               *fakeplatform.FakePlatform
+		fakeDevicePathResolver *boshdevicepathresolver.FakeDevicePathResolver
+	)
 
-func spinUpAwsRegistry(t *testing.T) (ts *httptest.Server, port string, expectedSettings boshsettings.Settings) {
-	settingsJson := `{
-		"agent_id": "my-agent-id",
-		"blobstore": {
-			"options": {
-				"bucket_name": "george",
-				"encryption_key": "optional encryption key",
-				"access_key_id": "optional access key id",
-				"secret_access_key": "optional secret access key"
-			},
-			"provider": "s3"
-		},
-		"disks": {
-			"ephemeral": "/dev/sdb",
-			"persistent": {
-				"vol-xxxxxx": "/dev/sdf"
-			},
-			"system": "/dev/sda1"
-		},
-		"env": {
-			"bosh": {
-				"password": "some encrypted password"
-			}
-		},
-		"networks": {
-			"netA": {
-				"default": ["dns", "gateway"],
-				"ip": "ww.ww.ww.ww",
-				"dns": [
-					"xx.xx.xx.xx",
-					"yy.yy.yy.yy"
-				]
-			},
-			"netB": {
-				"dns": [
-					"zz.zz.zz.zz"
-				]
-			}
-		},
-		"mbus": "https://vcap:b00tstrap@0.0.0.0:6868",
-		"ntp": [
-			"0.north-america.pool.ntp.org",
-			"1.north-america.pool.ntp.org"
-		],
-		"vm": {
-			"name": "vm-abc-def"
-		}
-	}`
-	settingsJson = strings.Replace(settingsJson, `"`, `\"`, -1)
-	settingsJson = strings.Replace(settingsJson, "\n", "", -1)
-	settingsJson = strings.Replace(settingsJson, "\t", "", -1)
-
-	settingsJson = fmt.Sprintf(`{"settings": "%s"}`, settingsJson)
-
-	expectedSettings = boshsettings.Settings{
-		AgentId: "my-agent-id",
-		Blobstore: boshsettings.Blobstore{
-			Options: map[string]string{
-				"bucket_name":       "george",
-				"encryption_key":    "optional encryption key",
-				"access_key_id":     "optional access key id",
-				"secret_access_key": "optional secret access key",
-			},
-			Type: "s3",
-		},
-		Disks: boshsettings.Disks{
-			Ephemeral:  "/dev/sdb",
-			Persistent: map[string]string{"vol-xxxxxx": "/dev/sdf"},
-			System:     "/dev/sda1",
-		},
-		Env: boshsettings.Env{
-			Bosh: boshsettings.BoshEnv{
-				Password: "some encrypted password",
-			},
-		},
-		Networks: boshsettings.Networks{
-			"netA": boshsettings.Network{
-				Default: []string{"dns", "gateway"},
-				Ip:      "ww.ww.ww.ww",
-				Dns:     []string{"xx.xx.xx.xx", "yy.yy.yy.yy"},
-			},
-			"netB": boshsettings.Network{
-				Dns: []string{"zz.zz.zz.zz"},
-			},
-		},
-		Mbus: "https://vcap:b00tstrap@0.0.0.0:6868",
-		Ntp: []string{
-			"0.north-america.pool.ntp.org",
-			"1.north-america.pool.ntp.org",
-		},
-		Vm: boshsettings.Vm{
-			Name: "vm-abc-def",
-		},
-	}
-
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.Method, "GET")
-		assert.Equal(t, r.URL.Path, "/instances/123-456-789/settings")
-		w.Write([]byte(settingsJson))
+	BeforeEach(func() {
+		platform = fakeplatform.NewFakePlatform()
+		fakeDevicePathResolver = boshdevicepathresolver.NewFakeDevicePathResolver(1*time.Millisecond, platform.GetFs())
 	})
 
-	ts = httptest.NewServer(handler)
+	Describe("AWS Infrastructure", func() {
+		Describe("SetupSsh", func() {
+			var (
+				ts  *httptest.Server
+				aws Infrastructure
+			)
+			const expectedKey = "some public key"
 
-	registryUrl, err := url.Parse(ts.URL)
-	assert.NoError(t, err)
-	port = strings.Split(registryUrl.Host, ":")[1]
+			BeforeEach(func() {
+				handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					Expect(r.Method).To(Equal("GET"))
+					Expect(r.URL.Path).To(Equal("/latest/meta-data/public-keys/0/openssh-key"))
+					w.Write([]byte(expectedKey))
+				})
+				ts = httptest.NewServer(handler)
+			})
 
-	return
-}
+			AfterEach(func() {
+				ts.Close()
+			})
 
-func spinUpAwsMetadaServer(t *testing.T, userData string) (ts *httptest.Server) {
-	instanceId := "123-456-789"
+			It("gets the public key and sets up ssh via the platform", func() {
+				aws = NewAwsInfrastructure(ts.URL, &FakeDnsResolver{}, platform, fakeDevicePathResolver)
+				err := aws.SetupSsh("vcap")
+				Expect(err).NotTo(HaveOccurred())
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.Method, "GET")
+				Expect(platform.SetupSshPublicKey).To(Equal(expectedKey))
+				Expect(platform.SetupSshUsername).To(Equal("vcap"))
+			})
+		})
 
-		switch r.URL.Path {
-		case "/latest/user-data":
-			w.Write([]byte(userData))
-		case "/latest/meta-data/instance-id":
-			w.Write([]byte(instanceId))
-		}
+		Describe("GetSettings", func() {
+			var (
+				settingsJson     string
+				expectedSettings boshsettings.Settings
+			)
+
+			BeforeEach(func() {
+				settingsJson = `{
+					"agent_id": "my-agent-id",
+					"blobstore": {
+						"options": {
+							"bucket_name": "george",
+							"encryption_key": "optional encryption key",
+							"access_key_id": "optional access key id",
+							"secret_access_key": "optional secret access key"
+						},
+						"provider": "s3"
+					},
+					"disks": {
+						"ephemeral": "/dev/sdb",
+						"persistent": {
+							"vol-xxxxxx": "/dev/sdf"
+						},
+						"system": "/dev/sda1"
+					},
+					"env": {
+						"bosh": {
+							"password": "some encrypted password"
+						}
+					},
+					"networks": {
+						"netA": {
+							"default": ["dns", "gateway"],
+							"ip": "ww.ww.ww.ww",
+							"dns": [
+								"xx.xx.xx.xx",
+								"yy.yy.yy.yy"
+							]
+						},
+						"netB": {
+							"dns": [
+								"zz.zz.zz.zz"
+							]
+						}
+					},
+					"mbus": "https://vcap:b00tstrap@0.0.0.0:6868",
+					"ntp": [
+						"0.north-america.pool.ntp.org",
+						"1.north-america.pool.ntp.org"
+					],
+					"vm": {
+						"name": "vm-abc-def"
+					}
+				}`
+				settingsJson = strings.Replace(settingsJson, `"`, `\"`, -1)
+				settingsJson = strings.Replace(settingsJson, "\n", "", -1)
+				settingsJson = strings.Replace(settingsJson, "\t", "", -1)
+
+				settingsJson = fmt.Sprintf(`{"settings": "%s"}`, settingsJson)
+
+				expectedSettings = boshsettings.Settings{
+					AgentId: "my-agent-id",
+					Blobstore: boshsettings.Blobstore{
+						Options: map[string]string{
+							"bucket_name":       "george",
+							"encryption_key":    "optional encryption key",
+							"access_key_id":     "optional access key id",
+							"secret_access_key": "optional secret access key",
+						},
+						Type: "s3",
+					},
+					Disks: boshsettings.Disks{
+						Ephemeral:  "/dev/sdb",
+						Persistent: map[string]string{"vol-xxxxxx": "/dev/sdf"},
+						System:     "/dev/sda1",
+					},
+					Env: boshsettings.Env{
+						Bosh: boshsettings.BoshEnv{
+							Password: "some encrypted password",
+						},
+					},
+					Networks: boshsettings.Networks{
+						"netA": boshsettings.Network{
+							Default: []string{"dns", "gateway"},
+							Ip:      "ww.ww.ww.ww",
+							Dns:     []string{"xx.xx.xx.xx", "yy.yy.yy.yy"},
+						},
+						"netB": boshsettings.Network{
+							Dns: []string{"zz.zz.zz.zz"},
+						},
+					},
+					Mbus: "https://vcap:b00tstrap@0.0.0.0:6868",
+					Ntp: []string{
+						"0.north-america.pool.ntp.org",
+						"1.north-america.pool.ntp.org",
+					},
+					Vm: boshsettings.Vm{
+						Name: "vm-abc-def",
+					},
+				}
+			})
+
+			Context("when a dns is not provided", func() {
+				It("aws get settings", func() {
+					boshRegistryHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Method).To(Equal("GET"))
+						Expect(r.URL.Path).To(Equal("/instances/123-456-789/settings"))
+						w.Write([]byte(settingsJson))
+					})
+
+					registryTs := httptest.NewServer(boshRegistryHandler)
+					defer registryTs.Close()
+
+					expectedUserData := fmt.Sprintf(`{"registry":{"endpoint":"%s"}}`, registryTs.URL)
+
+					instanceId := "123-456-789"
+
+					awsMetaDataHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Method).To(Equal("GET"))
+
+						switch r.URL.Path {
+						case "/latest/user-data":
+							w.Write([]byte(expectedUserData))
+						case "/latest/meta-data/instance-id":
+							w.Write([]byte(instanceId))
+						}
+					})
+
+					metadataTs := httptest.NewServer(awsMetaDataHandler)
+					defer metadataTs.Close()
+
+					platform := fakeplatform.NewFakePlatform()
+
+					aws := NewAwsInfrastructure(metadataTs.URL, &FakeDnsResolver{}, platform, fakeDevicePathResolver)
+
+					settings, err := aws.GetSettings()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(settings).To(Equal(expectedSettings))
+				})
+
+			})
+
+			Context("when dns servers are provided", func() {
+				It("aws get settings", func() {
+
+					fakeDnsResolver := &FakeDnsResolver{
+						LookupHostIp: "127.0.0.1",
+					}
+
+					registryHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Method).To(Equal("GET"))
+						Expect(r.URL.Path).To(Equal("/instances/123-456-789/settings"))
+						w.Write([]byte(settingsJson))
+					})
+
+					registryTs := httptest.NewServer(registryHandler)
+
+					registryUrl, err := url.Parse(registryTs.URL)
+					Expect(err).NotTo(HaveOccurred())
+					registryTsPort := strings.Split(registryUrl.Host, ":")[1]
+					defer registryTs.Close()
+
+					expectedUserData := fmt.Sprintf(`
+						{
+							"registry":{
+								"endpoint":"http://the.registry.name:%s"
+							},
+							"dns":{
+								"nameserver": ["8.8.8.8", "9.9.9.9"]
+							}
+						}`, registryTsPort)
+
+					instanceId := "123-456-789"
+
+					awsMetaDataHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						Expect(r.Method).To(Equal("GET"))
+
+						switch r.URL.Path {
+						case "/latest/user-data":
+							w.Write([]byte(expectedUserData))
+						case "/latest/meta-data/instance-id":
+							w.Write([]byte(instanceId))
+						}
+					})
+
+					metadataTs := httptest.NewServer(awsMetaDataHandler)
+					defer metadataTs.Close()
+
+					platform := fakeplatform.NewFakePlatform()
+
+					aws := NewAwsInfrastructure(metadataTs.URL, fakeDnsResolver, platform, fakeDevicePathResolver)
+
+					settings, err := aws.GetSettings()
+					Expect(err).NotTo(HaveOccurred())
+					Expect(settings).To(Equal(expectedSettings))
+					Expect(fakeDnsResolver.LookupHostHost).To(Equal("the.registry.name"))
+					Expect(fakeDnsResolver.LookupHostDnsServers).To(Equal([]string{"8.8.8.8", "9.9.9.9"}))
+				})
+			})
+		})
+
+		Describe("SetupNetworking", func() {
+			It("sets up DHCP on the platform", func() {
+				fakeDnsResolver := &FakeDnsResolver{}
+				platform := fakeplatform.NewFakePlatform()
+				aws := NewAwsInfrastructure("", fakeDnsResolver, platform, fakeDevicePathResolver)
+				networks := boshsettings.Networks{"bosh": boshsettings.Network{}}
+
+				aws.SetupNetworking(networks)
+
+				Expect(platform.SetupDhcpNetworks).To(Equal(networks))
+			})
+		})
+
+		Describe("GetEphemeralDiskPath", func() {
+			It("returns the real disk path given an AWS EBS hint", func() {
+				fakeDnsResolver := &FakeDnsResolver{}
+				platform := fakeplatform.NewFakePlatform()
+				aws := NewAwsInfrastructure("", fakeDnsResolver, platform, fakeDevicePathResolver)
+
+				platform.NormalizeDiskPathRealPath = "/dev/xvdb"
+				platform.NormalizeDiskPathFound = true
+
+				realPath, found := aws.GetEphemeralDiskPath("/dev/sdb")
+
+				Expect(found).To(Equal(true))
+				Expect(realPath).To(Equal("/dev/xvdb"))
+				Expect(platform.NormalizeDiskPathPath).To(Equal("/dev/sdb"))
+			})
+		})
+
+		Describe("MountPersistentDisk", func() {
+
+			var (
+				fs        *fakesys.FakeFileSystem
+				cmdRunner *fakesys.FakeCmdRunner
+			)
+
+			BeforeEach(func() {
+				fs = fakesys.NewFakeFileSystem()
+				cmdRunner = &fakesys.FakeCmdRunner{}
+			})
+
+			It("mounts the persistent disk", func() {
+				fakePlatform := fakeplatform.NewFakePlatform()
+
+				fakeFormatter := fakePlatform.FakeDiskManager.FakeFormatter
+				fakePartitioner := fakePlatform.FakeDiskManager.FakePartitioner
+				fakeMounter := fakePlatform.FakeDiskManager.FakeMounter
+
+				fakePlatform.GetFs().WriteFile("/dev/vdf", []byte{})
+
+				fakeDnsResolver := &FakeDnsResolver{}
+				aws := NewAwsInfrastructure("", fakeDnsResolver, fakePlatform, fakeDevicePathResolver)
+
+				fakeDevicePathResolver.RealDevicePath = "/dev/vdf"
+				err := aws.MountPersistentDisk("/dev/sdf", "/mnt/point")
+				Expect(err).NotTo(HaveOccurred())
+
+				mountPoint := fakePlatform.Fs.GetFileTestStat("/mnt/point")
+				Expect(mountPoint.FileType).To(Equal(fakesys.FakeFileTypeDir))
+				Expect(mountPoint.FileMode).To(Equal(os.FileMode(0700)))
+
+				partition := fakePartitioner.PartitionPartitions[0]
+				Expect(fakePartitioner.PartitionDevicePath).To(Equal("/dev/vdf"))
+				Expect(len(fakePartitioner.PartitionPartitions)).To(Equal(1))
+				Expect(partition.Type).To(Equal(boshdisk.PartitionTypeLinux))
+
+				Expect(len(fakeFormatter.FormatPartitionPaths)).To(Equal(1))
+				Expect(fakeFormatter.FormatPartitionPaths[0]).To(Equal("/dev/vdf1"))
+
+				Expect(len(fakeFormatter.FormatFsTypes)).To(Equal(1))
+				Expect(fakeFormatter.FormatFsTypes[0]).To(Equal(boshdisk.FileSystemExt4))
+
+				Expect(len(fakeMounter.MountMountPoints)).To(Equal(1))
+				Expect(fakeMounter.MountMountPoints[0]).To(Equal("/mnt/point"))
+				Expect(len(fakeMounter.MountPartitionPaths)).To(Equal(1))
+				Expect(fakeMounter.MountPartitionPaths[0]).To(Equal("/dev/vdf1"))
+
+			})
+		})
 	})
-
-	ts = httptest.NewServer(handler)
-	return
 }

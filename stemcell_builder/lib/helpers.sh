@@ -1,17 +1,5 @@
 # Copyright (c) 2009-2012 VMware, Inc.
 
-function codename() {
-  if [ -r /etc/lsb-release ]; then
-    source /etc/lsb-release
-    if [ -n "${DISTRIB_CODENAME}" ]; then
-      echo ${DISTRIB_CODENAME}
-      return 0
-    fi
-  else
-    lsb_release -cs
-  fi
-}
-
 function disable {
   if [ -e $1 ]
   then
@@ -45,9 +33,6 @@ function run_in_chroot {
 
     mkdir -p $chroot/proc
     mount -n --bind /proc $chroot/proc
-
-    mkdir -p $chroot/centosmirror
-    mount --bind /centosmirror $chroot/centosmirror
 
     chroot $chroot env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin http_proxy=${http_proxy:-} bash -e -c "$script"
 EOS

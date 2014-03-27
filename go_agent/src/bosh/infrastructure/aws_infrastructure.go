@@ -2,34 +2,48 @@ package infrastructure
 
 import (
 	bosherr "bosh/errors"
+	boshdevicepathresolver "bosh/infrastructure/device_path_resolver"
+	boshplatform "bosh/platform"
+	boshdisk "bosh/platform/disk"
 	boshsettings "bosh/settings"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
 type awsInfrastructure struct {
-	metadataHost string
-	resolver     dnsResolver
+	metadataHost       string
+	resolver           dnsResolver
+	platform           boshplatform.Platform
+	devicePathResolver boshdevicepathresolver.DevicePathResolver
 }
 
-func newAwsInfrastructure(metadataHost string, resolver dnsResolver) (infrastructure awsInfrastructure) {
-	infrastructure.metadataHost = metadataHost
-	infrastructure.resolver = resolver
+func NewAwsInfrastructure(metadataHost string, resolver dnsResolver, platform boshplatform.Platform,
+	devicePathResolver boshdevicepathresolver.DevicePathResolver) (inf awsInfrastructure) {
+	inf.metadataHost = metadataHost
+	inf.resolver = resolver
+	inf.platform = platform
+	inf.devicePathResolver = devicePathResolver
+
 	return
 }
 
-func (inf awsInfrastructure) SetupSsh(delegate SshSetupDelegate, username string) (err error) {
+func (inf awsInfrastructure) GetDevicePathResolver() boshdevicepathresolver.DevicePathResolver {
+	return inf.devicePathResolver
+}
+
+func (inf awsInfrastructure) SetupSsh(username string) (err error) {
 	publicKey, err := inf.getPublicKey()
 	if err != nil {
 		err = bosherr.WrapError(err, "Error getting public key")
 		return
 	}
 
-	err = delegate.SetupSsh(publicKey, username)
+	err = inf.platform.SetupSsh(publicKey, username)
 	return
 }
 
@@ -74,8 +88,12 @@ func (inf awsInfrastructure) GetSettings() (settings boshsettings.Settings, err 
 	return
 }
 
-func (inf awsInfrastructure) SetupNetworking(delegate NetworkingDelegate, networks boshsettings.Networks) (err error) {
-	return delegate.SetupDhcp(networks)
+func (inf awsInfrastructure) SetupNetworking(networks boshsettings.Networks) (err error) {
+	return inf.platform.SetupDhcp(networks)
+}
+
+func (inf awsInfrastructure) GetEphemeralDiskPath(devicePath string) (realPath string, found bool) {
+	return inf.platform.NormalizeDiskPath(devicePath)
 }
 
 func (inf awsInfrastructure) getInstanceId() (instanceId string, err error) {
@@ -197,6 +215,41 @@ func (inf awsInfrastructure) getSettingsAtUrl(settingsUrl string) (settings bosh
 	err = json.Unmarshal([]byte(wrapper.Settings), &settings)
 	if err != nil {
 		err = bosherr.WrapError(err, "Unmarshalling wrapped settings")
+	}
+	return
+}
+
+func (inf awsInfrastructure) MountPersistentDisk(volumeId string, mountPoint string) (err error) {
+	inf.platform.GetFs().MkdirAll(mountPoint, os.FileMode(0700))
+
+	realPath, err := inf.devicePathResolver.GetRealDevicePath(volumeId)
+
+	if err != nil {
+		err = bosherr.WrapError(err, "Getting real device path")
+		return
+	}
+
+	partitions := []boshdisk.Partition{
+		{Type: boshdisk.PartitionTypeLinux},
+	}
+
+	err = inf.platform.GetDiskManager().GetPartitioner().Partition(realPath, partitions)
+	if err != nil {
+		err = bosherr.WrapError(err, "Partitioning disk")
+		return
+	}
+
+	partitionPath := realPath + "1"
+	err = inf.platform.GetDiskManager().GetFormatter().Format(partitionPath, boshdisk.FileSystemExt4)
+	if err != nil {
+		err = bosherr.WrapError(err, "Formatting partition with ext4")
+		return
+	}
+
+	err = inf.platform.GetDiskManager().GetMounter().Mount(partitionPath, mountPoint)
+	if err != nil {
+		err = bosherr.WrapError(err, "Mounting partition")
+		return
 	}
 	return
 }

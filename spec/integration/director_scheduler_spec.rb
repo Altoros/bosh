@@ -1,7 +1,7 @@
 require 'spec_helper'
 
-describe Bosh::Spec::IntegrationTest::DirectorScheduler do
-  include IntegrationExampleGroup
+describe 'director_scheduler', type: :integration do
+  with_reset_sandbox_before_each
 
   before do
     target_and_login
@@ -45,6 +45,10 @@ describe Bosh::Spec::IntegrationTest::DirectorScheduler do
   end
 
   it 'backs up bosh on a defined schedule' do
+    if ENV['TRAVIS'] && ENV['DB'] == 'mysql'
+      pending 'Travis does not currently support mysqldump'
+    end
+
     30.times do
       break unless backups.empty?
       sleep 1

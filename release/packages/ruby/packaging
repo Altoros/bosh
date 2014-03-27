@@ -1,20 +1,28 @@
 set -e
 
-tar xzf ruby/ruby-1.9.3-p484.tar.gz
+tar xzf ruby/yaml-0.1.5.tar.gz
 (
   set -e
-  cd ruby-1.9.3-p484
-  ./configure --prefix=${BOSH_INSTALL_TARGET} --disable-install-doc
+  cd yaml-0.1.5
+  CFLAGS='-fPIC' ./configure --prefix=${BOSH_INSTALL_TARGET} --disable-shared
   make
   make install
 )
 
-tar zxvf ruby/rubygems-1.8.24.tgz
+tar xzf ruby/ruby-1.9.3-p484.tar.gz
+(
+  set -e
+  cd ruby-1.9.3-p484
+  LDFLAGS="-Wl,-rpath -Wl,${BOSH_INSTALL_TARGET}" CFLAGS='-fPIC' ./configure --prefix=${BOSH_INSTALL_TARGET} --disable-install-doc --with-opt-dir=${BOSH_INSTALL_TARGET}
+  make
+  make install
+)
+
+tar zxvf ruby/rubygems-2.1.11.tgz
 
 (
   set -e
-  cd rubygems-1.8.24
-  patch -p1 < ../ruby/rubygems-datefix.patch
+  cd rubygems-2.1.11
 
   ${BOSH_INSTALL_TARGET}/bin/ruby setup.rb
 
@@ -24,4 +32,4 @@ tar zxvf ruby/rubygems-1.8.24.tgz
   fi
 )
 
-${BOSH_INSTALL_TARGET}/bin/gem install ruby/bundler-1.2.3.gem --no-ri --no-rdoc
+${BOSH_INSTALL_TARGET}/bin/gem install ruby/bundler-1.5.2.gem --local --no-ri --no-rdoc

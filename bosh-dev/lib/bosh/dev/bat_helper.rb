@@ -3,14 +3,11 @@ require 'bosh/stemcell/definition'
 require 'bosh/dev/aws/runner_builder'
 require 'bosh/dev/openstack/runner_builder'
 require 'bosh/dev/vsphere/runner_builder'
-
-require 'forwardable'
+require 'bosh/dev/vcloud/runner_builder'
+require 'bosh/dev/bat/artifacts'
 
 module Bosh::Dev
   class BatHelper
-    extend Forwardable
-    def_delegators :@stemcell_definition, :infrastructure, :operating_system, :agent
-
     def self.for_rake_args(args)
       new(
         runner_builder_for_infrastructure_name(args.infrastructure_name),
@@ -23,44 +20,38 @@ module Bosh::Dev
     def self.runner_builder_for_infrastructure_name(name)
       { 'aws'       => Bosh::Dev::Aws::RunnerBuilder.new,
         'openstack' => Bosh::Dev::Openstack::RunnerBuilder.new,
-        'vsphere'   => Bosh::Dev::VSphere::RunnerBuilder.new
+        'vsphere'   => Bosh::Dev::VSphere::RunnerBuilder.new,
+        'vcloud'    => Bosh::Dev::VCloud::RunnerBuilder.new,
         # 'google'    => Bosh::Dev::Google::RunnerBuilder.new,
       }[name]
     end
 
-    def initialize(runner_builder, stemcell_definition, build, net_type)
+    def initialize(runner_builder, artifact_definition, build, net_type)
       @runner_builder   = runner_builder
-      @stemcell_definition = stemcell_definition
+      @artifact_definition = artifact_definition
       @build    = build
       @net_type = net_type
-    end
 
-    def bosh_stemcell_path
-      build.bosh_stemcell_path(infrastructure, operating_system, artifacts_dir)
-    end
-
-    def artifacts_dir
-      File.join(
-        '/tmp',
-        'ci-artifacts',
-        infrastructure.name,
-        net_type ? net_type : '',
-        operating_system.name,
-        'deployments',
+      artifacts_path = File.join(
+        '/tmp/ci-artifacts',
+        artifact_definition.infrastructure.name,
+        net_type,
+        artifact_definition.operating_system.name,
+        artifact_definition.agent.name,
+        'deployments'
       )
-    end
-
-    def micro_bosh_deployment_dir
-      File.join(artifacts_dir, micro_bosh_deployment_name)
-    end
-
-    def micro_bosh_deployment_name
-      'microbosh'
+      @artifacts = Bosh::Dev::Bat::Artifacts.new(artifacts_path, build, artifact_definition)
     end
 
     def deploy_microbosh_and_run_bats
-      prepare_directories
-      fetch_stemcells
+      artifacts.prepare_directories
+      build.download_stemcell(
+        'bosh-stemcell',
+        artifact_definition,
+        artifact_definition.infrastructure.light?,
+        artifacts.path,
+      )
+
       bats_runner.deploy_microbosh_and_run_bats
     end
 
@@ -69,26 +60,10 @@ module Bosh::Dev
     end
 
     private
-
-    attr_reader :build, :net_type, :stemcell_definition
-
-    def prepare_directories
-      FileUtils.rm_rf(artifacts_dir)
-      FileUtils.mkdir_p(micro_bosh_deployment_dir)
-    end
-
-    def fetch_stemcells
-      build.download_stemcell(
-        'bosh-stemcell',
-        infrastructure,
-        operating_system,
-        infrastructure.light?,
-        artifacts_dir,
-      )
-    end
+    attr_reader :build, :net_type, :artifact_definition, :artifacts
 
     def bats_runner
-      @runner_builder.build(self, net_type)
+      @runner_builder.build(artifacts, net_type)
     end
   end
 end

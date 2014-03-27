@@ -8,7 +8,9 @@ import (
 	boshtask "bosh/agent/task"
 	boshblob "bosh/blobstore"
 	bosherr "bosh/errors"
+	boshinfrastructure "bosh/infrastructure"
 	boshjobsuper "bosh/jobsupervisor"
+	boshlog "bosh/logger"
 	boshnotif "bosh/notification"
 	boshplatform "bosh/platform"
 	boshntp "bosh/platform/ntp"
@@ -22,6 +24,7 @@ type concreteFactory struct {
 func NewFactory(
 	settings boshsettings.Service,
 	platform boshplatform.Platform,
+	infrastructure boshinfrastructure.Infrastructure,
 	blobstore boshblob.Blobstore,
 	taskService boshtask.Service,
 	notifier boshnotif.Notifier,
@@ -30,6 +33,7 @@ func NewFactory(
 	jobSupervisor boshjobsuper.JobSupervisor,
 	specService boshas.V1Service,
 	drainScriptProvider boshdrain.DrainScriptProvider,
+	logger boshlog.Logger,
 ) (factory Factory) {
 	compressor := platform.GetCompressor()
 	copier := platform.GetCopier()
@@ -39,22 +43,29 @@ func NewFactory(
 
 	factory = concreteFactory{
 		availableActions: map[string]Action{
-			"apply":        newApply(applier, specService),
-			"drain":        newDrain(notifier, specService, drainScriptProvider),
-			"fetch_logs":   newLogs(compressor, copier, blobstore, dirProvider),
-			"get_task":     newGetTask(taskService),
-			"get_state":    newGetState(settings, specService, jobSupervisor, vitalsService, ntpService),
-			"list_disk":    newListDisk(settings, platform),
-			"migrate_disk": newMigrateDisk(settings, platform, dirProvider),
-			"mount_disk":   newMountDisk(settings, platform, dirProvider),
-			"ping":         newPing(),
-			"prepare_network_change": newPrepareNetworkChange(),
-			"ssh":                newSsh(settings, platform, dirProvider),
-			"start":              newStart(jobSupervisor),
-			"stop":               newStop(jobSupervisor),
-			"unmount_disk":       newUnmountDisk(settings, platform),
-			"compile_package":    newCompilePackage(compiler),
-			"release_apply_spec": newReleaseApplySpec(platform),
+			"ping":      NewPing(),
+			"get_task":  NewGetTask(taskService),
+			"get_state": NewGetState(settings, specService, jobSupervisor, vitalsService, ntpService),
+
+			"ssh":        NewSsh(settings, platform, dirProvider),
+			"drain":      NewDrain(notifier, specService, drainScriptProvider),
+			"fetch_logs": NewLogs(compressor, copier, blobstore, dirProvider),
+
+			"apply": NewApply(applier, specService),
+			"start": NewStart(jobSupervisor),
+			"stop":  NewStop(jobSupervisor),
+
+			"compile_package":    NewCompilePackage(compiler),
+			"release_apply_spec": NewReleaseApplySpec(platform),
+
+			"list_disk":    NewListDisk(settings, platform, logger),
+			"migrate_disk": NewMigrateDisk(platform, dirProvider),
+			"mount_disk":   NewMountDisk(settings, infrastructure, platform, dirProvider),
+			"unmount_disk": NewUnmountDisk(settings, platform),
+
+			"prepare_network_change":     NewPrepareNetworkChange(platform.GetFs(), settings),
+			"prepare_configure_networks": NewPrepareConfigureNetworks(platform.GetFs(), settings),
+			"configure_networks":         NewConfigureNetworks(),
 		},
 	}
 	return

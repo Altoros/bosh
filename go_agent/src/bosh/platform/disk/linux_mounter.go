@@ -16,11 +16,11 @@ type linuxMounter struct {
 	unmountRetrySleep time.Duration
 }
 
-func newLinuxMounter(runner boshsys.CmdRunner, fs boshsys.FileSystem) (mounter linuxMounter) {
+func NewLinuxMounter(runner boshsys.CmdRunner, fs boshsys.FileSystem, unmountRetrySleep time.Duration) (mounter linuxMounter) {
 	mounter.runner = runner
 	mounter.fs = fs
 	mounter.maxUnmountRetries = 600
-	mounter.unmountRetrySleep = 1 * time.Second
+	mounter.unmountRetrySleep = unmountRetrySleep
 	return
 }
 
@@ -165,7 +165,7 @@ func (m linuxMounter) shouldMount(partitionPath, mountPoint string) (shouldMount
 }
 
 func (m linuxMounter) searchMounts(mountFieldsFunc func(string, string) (bool, error)) (found bool, err error) {
-	mountInfo, err := m.fs.ReadFile("/proc/mounts")
+	mountInfo, err := m.fs.ReadFileString("/proc/mounts")
 	if err != nil {
 		err = bosherr.WrapError(err, "Reading /proc/mounts")
 		return

@@ -1,29 +1,35 @@
 package bootstrap
 
 import (
+	"errors"
+
 	bosherr "bosh/errors"
 	boshinf "bosh/infrastructure"
 	boshplatform "bosh/platform"
 	boshsettings "bosh/settings"
 	boshdir "bosh/settings/directories"
 	boshsys "bosh/system"
-	"encoding/json"
-	"errors"
-	"path/filepath"
 )
 
 type bootstrap struct {
-	fs             boshsys.FileSystem
-	infrastructure boshinf.Infrastructure
-	platform       boshplatform.Platform
-	dirProvider    boshdir.DirectoriesProvider
+	fs                      boshsys.FileSystem
+	infrastructure          boshinf.Infrastructure
+	platform                boshplatform.Platform
+	dirProvider             boshdir.DirectoriesProvider
+	settingsServiceProvider boshsettings.ServiceProvider
 }
 
-func New(inf boshinf.Infrastructure, platform boshplatform.Platform, dirProvider boshdir.DirectoriesProvider) (b bootstrap) {
+func New(
+	inf boshinf.Infrastructure,
+	platform boshplatform.Platform,
+	dirProvider boshdir.DirectoriesProvider,
+	settingsServiceProvider boshsettings.ServiceProvider,
+) (b bootstrap) {
+	b.fs = platform.GetFs()
 	b.infrastructure = inf
 	b.platform = platform
 	b.dirProvider = dirProvider
-	b.fs = platform.GetFs()
+	b.settingsServiceProvider = settingsServiceProvider
 	return
 }
 
@@ -34,18 +40,25 @@ func (boot bootstrap) Run() (settingsService boshsettings.Service, err error) {
 		return
 	}
 
-	err = boot.infrastructure.SetupSsh(boot.platform, boshsettings.VCAP_USERNAME)
+	err = boot.infrastructure.SetupSsh(boshsettings.VCAP_USERNAME)
 	if err != nil {
 		err = bosherr.WrapError(err, "Setting up ssh")
 		return
 	}
 
-	settings, err := boot.fetchInitialSettings()
+	settingsService = boot.settingsServiceProvider.NewService(
+		boot.fs,
+		boot.dirProvider.BoshDir(),
+		boot.infrastructure.GetSettings,
+	)
+
+	err = settingsService.LoadSettings()
 	if err != nil {
 		err = bosherr.WrapError(err, "Fetching settings")
 		return
 	}
-	settingsService = boshsettings.NewService(settings, boot.infrastructure.GetSettings)
+
+	settings := settingsService.GetSettings()
 
 	err = boot.setUserPasswords(settings)
 	if err != nil {
@@ -59,7 +72,7 @@ func (boot bootstrap) Run() (settingsService boshsettings.Service, err error) {
 		return
 	}
 
-	err = boot.infrastructure.SetupNetworking(boot.platform, settings.Networks)
+	err = boot.infrastructure.SetupNetworking(settings.Networks)
 	if err != nil {
 		err = bosherr.WrapError(err, "Setting up networking")
 		return
@@ -71,19 +84,33 @@ func (boot bootstrap) Run() (settingsService boshsettings.Service, err error) {
 		return
 	}
 
-	err = boot.platform.SetupEphemeralDiskWithPath(settings.Disks.Ephemeral)
+	disks := settingsService.GetDisks()
+
+	ephemeralDiskPath, found := boot.infrastructure.GetEphemeralDiskPath(disks.Ephemeral)
+	if !found {
+		err = bosherr.New("Could not find ephemeral disk '%s'", disks.Ephemeral)
+		return
+	}
+
+	err = boot.platform.SetupEphemeralDiskWithPath(ephemeralDiskPath)
 	if err != nil {
 		err = bosherr.WrapError(err, "Setting up ephemeral disk")
 		return
 	}
 
-	if len(settings.Disks.Persistent) > 1 {
+	if len(disks.Persistent) > 1 {
 		err = errors.New("Error mounting persistent disk, there is more than one persistent disk")
 		return
 	}
 
-	for _, devicePath := range settings.Disks.Persistent {
-		err = boot.platform.MountPersistentDisk(devicePath, boot.dirProvider.StoreDir())
+	err = boot.platform.SetupTmpDir()
+	if err != nil {
+		err = bosherr.WrapError(err, "Changing ownership of /tmp")
+		return
+	}
+
+	for _, devicePath := range disks.Persistent {
+		err = boot.infrastructure.MountPersistentDisk(devicePath, boot.dirProvider.StoreDir())
 		if err != nil {
 			err = bosherr.WrapError(err, "Mounting persistent disk")
 			return
@@ -101,31 +128,6 @@ func (boot bootstrap) Run() (settingsService boshsettings.Service, err error) {
 		err = bosherr.WrapError(err, "Starting monit")
 		return
 	}
-	return
-}
-
-func (boot bootstrap) fetchInitialSettings() (settings boshsettings.Settings, err error) {
-	settingsPath := filepath.Join(boot.dirProvider.BaseDir(), "bosh", "settings.json")
-
-	existingSettingsJson, readError := boot.platform.GetFs().ReadFile(settingsPath)
-	if readError == nil {
-		err = json.Unmarshal([]byte(existingSettingsJson), &settings)
-		return
-	}
-
-	settings, err = boot.infrastructure.GetSettings()
-	if err != nil {
-		err = bosherr.WrapError(err, "Fetching settings from infrastructure")
-		return
-	}
-
-	settingsJson, err := json.Marshal(settings)
-	if err != nil {
-		err = bosherr.WrapError(err, "Marshalling settings json")
-		return
-	}
-
-	boot.fs.WriteToFile(settingsPath, string(settingsJson))
 	return
 }
 

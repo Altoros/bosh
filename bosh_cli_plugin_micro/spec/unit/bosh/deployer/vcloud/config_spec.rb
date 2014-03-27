@@ -4,12 +4,6 @@ describe Bosh::Deployer::Config do
   before { @dir = Dir.mktmpdir('bdc_spec') }
   after { FileUtils.remove_entry_secure @dir }
 
-  it 'configure should fail without cloud properties' do
-    expect {
-      Bosh::Deployer::Config.configure('dir' => @dir)
-    }.to raise_error(Bosh::Cli::CliError)
-  end
-
   it 'should default agent properties' do
     config = Psych.load_file(spec_asset('test-bootstrap-config-vcloud.yml'))
     config['dir'] = @dir
@@ -59,13 +53,5 @@ describe Bosh::Deployer::Config do
     %w(ram disk cpu).each do |key|
       cloud_properties[key].should_not be_nil
     end
-  end
-
-  it 'should configure agent using mbus property' do
-    config = Psych.load_file(spec_asset('test-bootstrap-config-vcloud.yml'))
-    config['dir'] = @dir
-    Bosh::Deployer::Config.configure(config)
-    agent = Bosh::Deployer::Config.agent
-    agent.should be_kind_of(Bosh::Agent::HTTPClient)
   end
 end

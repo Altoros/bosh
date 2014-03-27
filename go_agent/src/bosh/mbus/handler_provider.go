@@ -2,25 +2,29 @@ package mbus
 
 import (
 	bosherr "bosh/errors"
+	boshhandler "bosh/handler"
 	boshlog "bosh/logger"
+	"bosh/micro"
+	boshplatform "bosh/platform"
 	boshsettings "bosh/settings"
+	boshdir "bosh/settings/directories"
 	"github.com/cloudfoundry/yagnats"
 	"net/url"
 )
 
-type mbusHandlerProvider struct {
+type MbusHandlerProvider struct {
 	settings boshsettings.Service
 	logger   boshlog.Logger
-	handler  Handler
+	handler  boshhandler.Handler
 }
 
-func NewHandlerProvider(settings boshsettings.Service, logger boshlog.Logger) (p mbusHandlerProvider) {
+func NewHandlerProvider(settings boshsettings.Service, logger boshlog.Logger) (p MbusHandlerProvider) {
 	p.settings = settings
 	p.logger = logger
 	return
 }
 
-func (p mbusHandlerProvider) Get() (handler Handler, err error) {
+func (p MbusHandlerProvider) Get(platform boshplatform.Platform, dirProvider boshdir.DirectoriesProvider) (handler boshhandler.Handler, err error) {
 	if p.handler != nil {
 		handler = p.handler
 		return
@@ -34,9 +38,9 @@ func (p mbusHandlerProvider) Get() (handler Handler, err error) {
 
 	switch mbusUrl.Scheme {
 	case "nats":
-		handler = newNatsHandler(p.settings, p.logger, yagnats.NewClient())
+		handler = NewNatsHandler(p.settings, p.logger, yagnats.NewClient())
 	case "https":
-		handler = newHttpsHandler(mbusUrl, p.logger)
+		handler = micro.NewHttpsHandler(mbusUrl, p.logger, platform.GetFs(), dirProvider)
 	default:
 		err = bosherr.New("Message Bus Handler with scheme %s could not be found", mbusUrl.Scheme)
 	}

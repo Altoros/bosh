@@ -1,7 +1,10 @@
 package platform
 
 import (
+	boshdevicepathresolver "bosh/infrastructure/device_path_resolver"
+	boshlog "bosh/logger"
 	boshcmd "bosh/platform/commands"
+	boshdisk "bosh/platform/disk"
 	boshstats "bosh/platform/stats"
 	boshvitals "bosh/platform/vitals"
 	boshsettings "bosh/settings"
@@ -11,29 +14,36 @@ import (
 )
 
 type dummyPlatform struct {
-	collector     boshstats.StatsCollector
-	fs            boshsys.FileSystem
-	cmdRunner     boshsys.CmdRunner
-	compressor    boshcmd.Compressor
-	copier        boshcmd.Copier
-	dirProvider   boshdirs.DirectoriesProvider
-	vitalsService boshvitals.Service
+	collector          boshstats.StatsCollector
+	fs                 boshsys.FileSystem
+	cmdRunner          boshsys.CmdRunner
+	compressor         boshcmd.Compressor
+	copier             boshcmd.Copier
+	dirProvider        boshdirs.DirectoriesProvider
+	vitalsService      boshvitals.Service
+	diskManager        boshdisk.Manager
+	devicePathResolver boshdevicepathresolver.DevicePathResolver
+	logger             boshlog.Logger
 }
 
-func newDummyPlatform(
+func NewDummyPlatform(
 	collector boshstats.StatsCollector,
 	fs boshsys.FileSystem,
 	cmdRunner boshsys.CmdRunner,
 	dirProvider boshdirs.DirectoriesProvider,
-) (platform dummyPlatform) {
-	platform.collector = collector
-	platform.fs = fs
-	platform.cmdRunner = cmdRunner
-	platform.dirProvider = dirProvider
+	diskManager boshdisk.Manager,
+) (platform *dummyPlatform) {
 
-	platform.compressor = boshcmd.NewTarballCompressor(cmdRunner, fs)
-	platform.copier = boshcmd.NewCpCopier(cmdRunner, fs)
-	platform.vitalsService = boshvitals.NewService(collector, dirProvider)
+	platform = &dummyPlatform{
+		fs:            fs,
+		cmdRunner:     cmdRunner,
+		collector:     collector,
+		compressor:    boshcmd.NewTarballCompressor(cmdRunner, fs),
+		copier:        boshcmd.NewCpCopier(cmdRunner, fs),
+		dirProvider:   dirProvider,
+		vitalsService: boshvitals.NewService(collector, dirProvider),
+		diskManager:   diskManager,
+	}
 	return
 }
 
@@ -63,6 +73,15 @@ func (p dummyPlatform) GetDirProvider() (dirProvider boshdir.DirectoriesProvider
 
 func (p dummyPlatform) GetVitalsService() (service boshvitals.Service) {
 	return p.vitalsService
+}
+
+func (p dummyPlatform) GetDevicePathResolver() (devicePathResolver boshdevicepathresolver.DevicePathResolver) {
+	return p.devicePathResolver
+}
+
+func (p *dummyPlatform) SetDevicePathResolver(devicePathResolver boshdevicepathresolver.DevicePathResolver) (err error) {
+	p.devicePathResolver = devicePathResolver
+	return
 }
 
 func (p dummyPlatform) SetupRuntimeConfiguration() (err error) {
@@ -97,6 +116,10 @@ func (p dummyPlatform) SetupDhcp(networks boshsettings.Networks) (err error) {
 	return
 }
 
+func (p dummyPlatform) SetupManualNetworking(networks boshsettings.Networks) (err error) {
+	return
+}
+
 func (p dummyPlatform) SetupLogrotate(groupName, basePath, size string) (err error) {
 	return
 }
@@ -109,11 +132,23 @@ func (p dummyPlatform) SetupEphemeralDiskWithPath(devicePath string) (err error)
 	return
 }
 
+func (p dummyPlatform) SetupTmpDir() (err error) {
+	return
+}
+
 func (p dummyPlatform) MountPersistentDisk(devicePath, mountPoint string) (err error) {
 	return
 }
 
 func (p dummyPlatform) UnmountPersistentDisk(devicePath string) (didUnmount bool, err error) {
+	return
+}
+
+func (p dummyPlatform) NormalizeDiskPath(attachment string) (devicePath string, found bool) {
+	return "/dev/sdb", true
+}
+
+func (p dummyPlatform) GetFileContentsFromCDROM(filePath string) (contents []byte, err error) {
 	return
 }
 
@@ -138,5 +173,9 @@ func (p dummyPlatform) SetupMonitUser() (err error) {
 }
 
 func (p dummyPlatform) GetMonitCredentials() (username, password string, err error) {
+	return
+}
+
+func (p dummyPlatform) GetDiskManager() (diskManager boshdisk.Manager) {
 	return
 }

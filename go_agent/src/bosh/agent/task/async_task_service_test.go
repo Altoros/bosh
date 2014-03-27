@@ -1,98 +1,184 @@
-package task
+package task_test
 
 import (
-	boshlog "bosh/logger"
 	"errors"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"testing"
 	"time"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	. "bosh/agent/task"
+	boshlog "bosh/logger"
+	fakeuuid "bosh/uuid/fakes"
 )
 
-func TestRunningASuccessfulTask(t *testing.T) {
-	testRunningTask(t, TaskStateDone, 123, nil)
-}
+func init() {
+	Describe("asyncTaskService", func() {
+		var (
+			uuidGen *fakeuuid.FakeGenerator
+			service Service
+		)
 
-func TestRunningAFailingTask(t *testing.T) {
-	testRunningTask(t, TaskStateFailed, nil, errors.New("Oops"))
-}
+		BeforeEach(func() {
+			uuidGen = &fakeuuid.FakeGenerator{}
+			service = NewAsyncTaskService(uuidGen, boshlog.NewLogger(boshlog.LEVEL_NONE))
+		})
 
-func testRunningTask(t *testing.T, expectedState TaskState, withValue interface{}, withErr error) {
-	service := NewAsyncTaskService(boshlog.NewLogger(boshlog.LEVEL_NONE))
-
-	taskIsFinished := false
-
-	task := service.StartTask(func() (value interface{}, err error) {
-		for !taskIsFinished {
-		}
-		value = withValue
-		err = withErr
-		return
-	})
-
-	assert.Equal(t, "1", task.Id)
-	assert.Equal(t, "running", task.State)
-
-	taskIsFinished = true
-
-	updatedTask, _ := service.FindTask(task.Id)
-
-	for updatedTask.State != expectedState {
-		time.Sleep(time.Nanosecond)
-		updatedTask, _ = service.FindTask(task.Id)
-	}
-	assert.Equal(t, expectedState, updatedTask.State)
-	assert.Equal(t, withValue, updatedTask.Value)
-
-	if withErr != nil {
-		assert.Equal(t, withErr, updatedTask.Error)
-	} else {
-		assert.NoError(t, updatedTask.Error)
-	}
-}
-
-func TestStartTaskGeneratesTaskId(t *testing.T) {
-	var taskFunc = func() (value interface{}, err error) {
-		return
-	}
-
-	service := NewAsyncTaskService(boshlog.NewLogger(boshlog.LEVEL_NONE))
-
-	for expectedTaskId := 1; expectedTaskId < 20; expectedTaskId++ {
-		task := service.StartTask(taskFunc)
-		assert.Equal(t, fmt.Sprintf("%d", expectedTaskId), task.Id)
-	}
-}
-
-func TestProcessingManyTasksSimultaneously(t *testing.T) {
-	taskFunc := func() (value interface{}, err error) {
-		time.Sleep(10 * time.Millisecond)
-		return
-	}
-
-	service := NewAsyncTaskService(boshlog.NewLogger(boshlog.LEVEL_NONE))
-	ids := []string{}
-
-	for id := 1; id < 200; id++ {
-		ids = append(ids, fmt.Sprintf("%d", id))
-		go service.StartTask(taskFunc)
-	}
-
-	for {
-		allDone := true
-
-		for _, id := range ids {
-			task, _ := service.FindTask(id)
-			if task.State != TaskStateDone {
-				allDone = false
-				break
+		Describe("StartTask", func() {
+			startAndWaitForTaskCompletion := func(task Task) Task {
+				service.StartTask(task)
+				for task.State == TaskStateRunning {
+					time.Sleep(time.Nanosecond)
+					task, _ = service.FindTaskWithId(task.Id)
+				}
+				return task
 			}
-		}
 
-		if allDone {
-			break
-		}
+			It("sets return value on a successful task", func() {
+				runFunc := func() (interface{}, error) { return 123, nil }
 
-		time.Sleep(200 * time.Millisecond)
-	}
+				task, err := service.CreateTask(runFunc, nil)
+				Expect(err).ToNot(HaveOccurred())
+
+				task = startAndWaitForTaskCompletion(task)
+				Expect(task.State).To(BeEquivalentTo(TaskStateDone))
+				Expect(task.Value).To(Equal(123))
+				Expect(task.Error).To(BeNil())
+			})
+
+			It("sets task error on a failing task", func() {
+				err := errors.New("fake-error")
+				runFunc := func() (interface{}, error) { return nil, err }
+
+				task, createErr := service.CreateTask(runFunc, nil)
+				Expect(createErr).ToNot(HaveOccurred())
+
+				task = startAndWaitForTaskCompletion(task)
+				Expect(task.State).To(BeEquivalentTo(TaskStateFailed))
+				Expect(task.Value).To(BeNil())
+				Expect(task.Error).To(Equal(err))
+			})
+
+			Describe("CreateTask", func() {
+				It("can run task created with CreateTask which does not have end func", func() {
+					ranFunc := false
+					runFunc := func() (interface{}, error) { ranFunc = true; return nil, nil }
+
+					task, err := service.CreateTask(runFunc, nil)
+					Expect(err).ToNot(HaveOccurred())
+
+					startAndWaitForTaskCompletion(task)
+					Expect(ranFunc).To(BeTrue())
+				})
+
+				It("can run task created with CreateTask which has end func", func() {
+					ranFunc := false
+					runFunc := func() (interface{}, error) { ranFunc = true; return nil, nil }
+
+					ranEndFunc := false
+					endFunc := func(Task) { ranEndFunc = true }
+
+					task, err := service.CreateTask(runFunc, endFunc)
+					Expect(err).ToNot(HaveOccurred())
+
+					startAndWaitForTaskCompletion(task)
+					Expect(ranFunc).To(BeTrue())
+					Expect(ranEndFunc).To(BeTrue())
+				})
+
+				It("returns an error if generate uuid fails", func() {
+					uuidGen.GenerateError = errors.New("fake-generate-uuid-error")
+					_, err := service.CreateTask(nil, nil)
+					Expect(err).To(HaveOccurred())
+					Expect(err.Error()).To(ContainSubstring("fake-generate-uuid-error"))
+				})
+			})
+
+			Describe("CreateTaskWithId", func() {
+				It("can run task created with CreateTaskWithId which does not have end func", func() {
+					ranFunc := false
+					runFunc := func() (interface{}, error) { ranFunc = true; return nil, nil }
+
+					task := service.CreateTaskWithId("fake-task-id", runFunc, nil)
+
+					startAndWaitForTaskCompletion(task)
+					Expect(ranFunc).To(BeTrue())
+				})
+
+				It("can run task created with CreateTaskWithId which has end func", func() {
+					ranFunc := false
+					runFunc := func() (interface{}, error) { ranFunc = true; return nil, nil }
+
+					ranEndFunc := false
+					endFunc := func(Task) { ranEndFunc = true }
+
+					task := service.CreateTaskWithId("fake-task-id", runFunc, endFunc)
+
+					startAndWaitForTaskCompletion(task)
+					Expect(ranFunc).To(BeTrue())
+					Expect(ranEndFunc).To(BeTrue())
+				})
+			})
+
+			It("can process many tasks simultaneously", func() {
+				taskFunc := func() (interface{}, error) {
+					time.Sleep(10 * time.Millisecond)
+					return nil, nil
+				}
+
+				ids := []string{}
+				for id := 1; id < 200; id++ {
+					idStr := fmt.Sprintf("%d", id)
+					uuidGen.GeneratedUuid = idStr
+					ids = append(ids, idStr)
+
+					task, err := service.CreateTask(taskFunc, nil)
+					Expect(err).ToNot(HaveOccurred())
+					go service.StartTask(task)
+				}
+
+				for {
+					allDone := true
+					for _, id := range ids {
+						task, _ := service.FindTaskWithId(id)
+						if task.State != TaskStateDone {
+							allDone = false
+							break
+						}
+					}
+
+					if allDone {
+						break
+					}
+					time.Sleep(200 * time.Millisecond)
+				}
+			})
+		})
+
+		Describe("CreateTask", func() {
+			It("creates a task with auto-assigned id", func() {
+				uuidGen.GeneratedUuid = "fake-uuid"
+
+				runFunc := func() (interface{}, error) { return nil, nil }
+				endFunc := func(Task) {}
+
+				task, err := service.CreateTask(runFunc, endFunc)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(task.Id).To(Equal("fake-uuid"))
+				Expect(task.State).To(Equal(TaskStateRunning))
+			})
+		})
+
+		Describe("CreateTaskWithId", func() {
+			It("creates a task with given id", func() {
+				runFunc := func() (interface{}, error) { return nil, nil }
+				endFunc := func(Task) {}
+
+				task := service.CreateTaskWithId("fake-task-id", runFunc, endFunc)
+				Expect(task.Id).To(Equal("fake-task-id"))
+				Expect(task.State).To(Equal(TaskStateRunning))
+			})
+		})
+	})
 }

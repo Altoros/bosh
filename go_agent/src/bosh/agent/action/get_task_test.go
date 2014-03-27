@@ -1,78 +1,80 @@
-package action
+package action_test
 
 import (
+	"errors"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+	"github.com/stretchr/testify/assert"
+
+	. "bosh/agent/action"
 	boshtask "bosh/agent/task"
 	faketask "bosh/agent/task/fakes"
 	boshassert "bosh/assert"
-	"errors"
-	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
-func TestGetTaskShouldBeSynchronous(t *testing.T) {
-	_, action := buildGetTaskAction()
-	assert.False(t, action.IsAsynchronous())
-}
+func init() {
+	Describe("GetTask", func() {
+		var (
+			taskService *faketask.FakeService
+			action      GetTaskAction
+		)
 
-func TestGetTaskRunReturnsARunningTask(t *testing.T) {
-	taskService, action := buildGetTaskAction()
+		BeforeEach(func() {
+			taskService = faketask.NewFakeService()
+			action = NewGetTask(taskService)
+		})
 
-	taskService.Tasks = map[string]boshtask.Task{
-		"57": boshtask.Task{
-			Id:    "found-57-id",
-			State: boshtask.TaskStateRunning,
-		},
-	}
+		It("is synchronous", func() {
+			Expect(action.IsAsynchronous()).To(BeFalse())
+		})
 
-	taskValue, err := action.Run("57")
-	assert.NoError(t, err)
-	boshassert.MatchesJsonString(t, taskValue, `{"agent_task_id":"found-57-id","state":"running"}`)
-}
+		It("is not persistent", func() {
+			Expect(action.IsPersistent()).To(BeFalse())
+		})
 
-func TestGetTaskRunReturnsAFailedTask(t *testing.T) {
-	taskService, action := buildGetTaskAction()
+		It("returns a running task", func() {
+			taskService.StartedTasks["fake-task-id"] = boshtask.Task{
+				Id:    "fake-task-id",
+				State: boshtask.TaskStateRunning,
+			}
 
-	taskService.Tasks = map[string]boshtask.Task{
-		"57": boshtask.Task{
-			Id:    "found-57-id",
-			State: boshtask.TaskStateFailed,
-			Error: errors.New("Oops we failed..."),
-		},
-	}
+			taskValue, err := action.Run("fake-task-id")
+			assert.NoError(GinkgoT(), err)
+			boshassert.MatchesJsonString(GinkgoT(), taskValue, `{"agent_task_id":"fake-task-id","state":"running"}`)
+		})
 
-	taskValue, err := action.Run("57")
-	assert.Error(t, err)
-	assert.Equal(t, "Oops we failed...", err.Error())
-	boshassert.MatchesJsonString(t, taskValue, `null`)
-}
+		It("returns a failed task", func() {
+			taskService.StartedTasks["fake-task-id"] = boshtask.Task{
+				Id:    "fake-task-id",
+				State: boshtask.TaskStateFailed,
+				Error: errors.New("fake-task-error"),
+			}
 
-func TestGetTaskRunReturnsASuccessfulTask(t *testing.T) {
-	taskService, action := buildGetTaskAction()
+			taskValue, err := action.Run("fake-task-id")
+			assert.Error(GinkgoT(), err)
+			assert.Equal(GinkgoT(), "fake-task-error", err.Error())
+			boshassert.MatchesJsonString(GinkgoT(), taskValue, `null`)
+		})
 
-	taskService.Tasks = map[string]boshtask.Task{
-		"57": boshtask.Task{
-			Id:    "found-57-id",
-			State: boshtask.TaskStateDone,
-			Value: "some-task-value",
-		},
-	}
+		It("returns a successful task", func() {
+			taskService.StartedTasks["fake-task-id"] = boshtask.Task{
+				Id:    "fake-task-id",
+				State: boshtask.TaskStateDone,
+				Value: "some-task-value",
+			}
 
-	taskValue, err := action.Run("57")
-	assert.NoError(t, err)
-	boshassert.MatchesJsonString(t, taskValue, `"some-task-value"`)
-}
+			taskValue, err := action.Run("fake-task-id")
+			assert.NoError(GinkgoT(), err)
+			boshassert.MatchesJsonString(GinkgoT(), taskValue, `"some-task-value"`)
+		})
 
-func TestGetTaskRunWhenTaskIsNotFound(t *testing.T) {
-	taskService, action := buildGetTaskAction()
+		It("returns error when task is not found", func() {
+			taskService.StartedTasks = map[string]boshtask.Task{}
 
-	taskService.Tasks = map[string]boshtask.Task{}
-
-	_, err := action.Run("57")
-	assert.Error(t, err)
-	assert.Equal(t, "Task with id 57 could not be found", err.Error())
-}
-
-func buildGetTaskAction() (*faketask.FakeService, getTaskAction) {
-	taskService := &faketask.FakeService{}
-	return taskService, newGetTask(taskService)
+			_, err := action.Run("fake-task-id")
+			assert.Error(GinkgoT(), err)
+			assert.Equal(GinkgoT(), "Task with id fake-task-id could not be found", err.Error())
+		})
+	})
 }

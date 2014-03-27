@@ -2,22 +2,25 @@ require 'rbconfig'
 require 'bosh_agent/version'
 require 'bosh/stemcell/archive_filename'
 
+require 'forwardable'
+
 module Bosh::Stemcell
   class BuilderOptions
-    def initialize(env, options)
-      @environment = env
-      @infrastructure = options.fetch(:infrastructure)
-      @operating_system = options.fetch(:operating_system)
-      @agent_name = options.fetch(:agent_name)
+    extend Forwardable
 
-      @stemcell_version = options.fetch(:stemcell_version)
-      @image_create_disk_size = options.fetch(:disk_size, infrastructure.default_disk_size)
-      @bosh_micro_release_tgz_path = options.fetch(:tarball)
+    def initialize(dependencies = {})
+      @environment = dependencies.fetch(:env)
+      @definition = dependencies.fetch(:definition)
+
+      @stemcell_version = dependencies.fetch(:version)
+      @image_create_disk_size = dependencies.fetch(:disk_size, infrastructure.default_disk_size)
+      @bosh_micro_release_tgz_path = dependencies.fetch(:release_tarball)
+      @os_image_tgz_path = dependencies.fetch(:os_image_tarball)
     end
 
     def default
       stemcell_name = "bosh-#{infrastructure.name}-#{infrastructure.hypervisor}-#{operating_system.name}"
-      stemcell_name += "-#{agent_name}_agent" unless agent_name == 'ruby'
+      stemcell_name += "-#{agent.name}_agent" unless agent.name == 'ruby'
 
       {
         'stemcell_name' => stemcell_name,
@@ -32,25 +35,32 @@ module Bosh::Stemcell
         'bosh_release_src_dir' => File.join(source_root, 'release/src/bosh'),
         'bosh_agent_src_dir' => File.join(source_root, 'bosh_agent'),
         'go_agent_src_dir' => File.join(source_root, 'go_agent'),
-        'image_create_disk_size' => image_create_disk_size
-      }.merge(bosh_micro_options).merge(environment_variables).merge(vsphere_options)
+        'image_create_disk_size' => image_create_disk_size,
+        'os_image_tgz' => os_image_tgz_path,
+      }.merge(bosh_micro_options).merge(environment_variables).merge(ovf_options)
     end
 
     private
 
-    attr_reader(
-      :environment,
+    def_delegators(
+      :@definition,
       :infrastructure,
       :operating_system,
-      :agent_name,
-      :stemcell_version,
-      :image_create_disk_size,
-      :bosh_micro_release_tgz_path
+      :agent,
     )
 
-    def vsphere_options
-      if infrastructure.name == 'vsphere'
-        { 'image_vsphere_ovf_ovftool_path' => environment['OVFTOOL'] }
+    attr_reader(
+      :environment,
+      :stemcell_version,
+      :definition,
+      :image_create_disk_size,
+      :bosh_micro_release_tgz_path,
+      :os_image_tgz_path,
+    )
+
+    def ovf_options
+      if infrastructure.name == 'vsphere' || infrastructure.name == 'vcloud'
+        { 'image_ovftool_path' => environment['OVFTOOL'] }
       else
         {}
       end
@@ -73,7 +83,7 @@ module Bosh::Stemcell
     end
 
     def archive_filename
-      ArchiveFilename.new(stemcell_version, infrastructure, operating_system, 'bosh-stemcell', false, agent_name)
+      ArchiveFilename.new(stemcell_version, definition, 'bosh-stemcell', false)
     end
 
     def stemcell_image_name

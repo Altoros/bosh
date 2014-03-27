@@ -9,8 +9,9 @@ module Bosh::Director
       include IpUtil
 
       # @param [Bosh::Director::DeploymentPlan] deployment Deployment plan
-      def initialize(deployment)
+      def initialize(deployment, event_log)
         @deployment = deployment
+        @event_log = event_log
       end
 
       # @param [Hash] job_spec Raw job spec from the deployment manifest
@@ -20,6 +21,8 @@ module Bosh::Director
         @job = Job.new(@deployment)
 
         parse_name
+        parse_lifecycle
+
         parse_release
         parse_template
         parse_templates
@@ -44,6 +47,22 @@ module Bosh::Director
         @job.canonical_name = canonical(@job.name)
       end
 
+      def parse_lifecycle
+        lifecycle = safe_property(@job_spec, "lifecycle",
+          :class => String,
+          :optional => true,
+          :default => Job::DEFAULT_LIFECYCLE_PROFILE,
+        )
+
+        unless Job::VALID_LIFECYCLE_PROFILES.include?(lifecycle)
+          raise JobInvalidLifecycle,
+            "Invalid lifecycle `#{lifecycle}' for `#{@job.name}', " +
+            "valid lifecycle profiles are: #{Job::VALID_LIFECYCLE_PROFILES.join(', ')}"
+        end
+
+        @job.lifecycle = lifecycle
+      end
+
       def parse_release
         release_name = safe_property(@job_spec, "release", :class => String, :optional => true)
 
@@ -64,15 +83,22 @@ module Bosh::Director
       def parse_template
         template_names = safe_property(@job_spec, "template", optional: true)
         if template_names
-          if template_names.is_a?(String)
-            template_names = Array(template_names)
+          if template_names.is_a?(Array)
+            @event_log.warn_deprecated(
+              "Please use `templates' when specifying multiple templates for a job. " +
+              "`template' for multiple templates will soon be unsupported."
+            )
           end
 
-          unless template_names.is_a?(Array)
+          unless template_names.is_a?(Array) || template_names.is_a?(String)
             invalid_type("template", "String or Array", template_names)
           end
 
-          template_names.each do |template_name|
+          unless @job.release
+            raise JobMissingRelease, "Cannot tell what release job `#{@job.name}' is supposed to use, please explicitly specify one"
+          end
+
+          Array(template_names).each do |template_name|
             @job.templates << @job.release.use_template_named(template_name)
           end
         end
@@ -190,9 +216,13 @@ module Bosh::Director
             "Invalid state `#{@job.state}' for `#{@job.name}', valid states are: #{Job::VALID_JOB_STATES.join(", ")}"
         end
 
+        if @job.lifecycle == 'errand'
+          @job.resource_pool.reserve_errand_capacity(job_size)
+        else
+          @job.resource_pool.reserve_capacity(job_size)
+        end
         job_size.times do |index|
           @job.instances[index] = Instance.new(@job, index)
-          @job.resource_pool.reserve_capacity(1)
         end
       end
 

@@ -10,15 +10,18 @@ import (
 	"fmt"
 	"github.com/pivotal/go-smtpd/smtpd"
 	"path/filepath"
+	"time"
+	//	"strconv"
 )
 
 type monitJobSupervisor struct {
-	fs                    boshsys.FileSystem
-	runner                boshsys.CmdRunner
-	client                boshmonit.Client
-	logger                boshlog.Logger
-	dirProvider           boshdir.DirectoriesProvider
-	jobFailuresServerPort int
+	fs                             boshsys.FileSystem
+	runner                         boshsys.CmdRunner
+	client                         boshmonit.Client
+	logger                         boshlog.Logger
+	dirProvider                    boshdir.DirectoriesProvider
+	jobFailuresServerPort          int
+	delayBetweenReloadCheckRetries time.Duration
 }
 
 const MonitTag = "Monit Job Supervisor"
@@ -29,19 +32,46 @@ func NewMonitJobSupervisor(
 	client boshmonit.Client,
 	logger boshlog.Logger,
 	dirProvider boshdir.DirectoriesProvider,
+	jobFailuresServerPort int,
+	delayBetweenReloadCheckRetries time.Duration,
 ) (m monitJobSupervisor) {
 	return monitJobSupervisor{
-		fs:                    fs,
-		runner:                runner,
-		client:                client,
-		logger:                logger,
-		dirProvider:           dirProvider,
-		jobFailuresServerPort: 2825,
+		fs:                             fs,
+		runner:                         runner,
+		client:                         client,
+		logger:                         logger,
+		dirProvider:                    dirProvider,
+		jobFailuresServerPort:          jobFailuresServerPort,
+		delayBetweenReloadCheckRetries: delayBetweenReloadCheckRetries,
 	}
 }
 
 func (m monitJobSupervisor) Reload() (err error) {
+	oldIncarnation, err := m.getIncarnation()
+	if err != nil {
+		err = bosherr.WrapError(err, "Getting monit incarnation")
+		return err
+	}
+
+	// Exit code or output cannot be trusted
 	m.runner.RunCommand("monit", "reload")
+
+	for attempt := 1; attempt < 60; attempt++ {
+		err = nil
+		currentIncarnation, err := m.getIncarnation()
+		if err != nil {
+			err = bosherr.WrapError(err, "Getting monit incarnation")
+			return err
+		}
+
+		if oldIncarnation < currentIncarnation {
+			return nil
+		}
+
+		time.Sleep(m.delayBetweenReloadCheckRetries)
+	}
+
+	err = bosherr.New("Failed to reload monit")
 	return
 }
 
@@ -102,6 +132,15 @@ func (m monitJobSupervisor) Status() (status string) {
 	return
 }
 
+func (m monitJobSupervisor) getIncarnation() (int, error) {
+	monitStatus, err := m.client.Status()
+	if err != nil {
+		return -1, err
+	}
+
+	return monitStatus.GetIncarnation()
+}
+
 func (m monitJobSupervisor) AddJob(jobName string, jobIndex int, configPath string) (err error) {
 	targetFilename := fmt.Sprintf("%04d_%s.monitrc", jobIndex, jobName)
 	targetConfigPath := filepath.Join(m.dirProvider.MonitJobsDir(), targetFilename)
@@ -112,7 +151,7 @@ func (m monitJobSupervisor) AddJob(jobName string, jobIndex int, configPath stri
 		return
 	}
 
-	_, err = m.fs.WriteToFile(targetConfigPath, configContent)
+	err = m.fs.WriteFile(targetConfigPath, configContent)
 	if err != nil {
 		err = bosherr.WrapError(err, "Writing to job config file")
 	}

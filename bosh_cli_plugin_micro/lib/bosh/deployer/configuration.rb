@@ -1,15 +1,17 @@
+require 'bosh/deployer/models/instance'
+require 'bosh/deployer/infrastructure_defaults'
+
 module Bosh::Deployer
   class Configuration
-    include Helpers
-
     attr_accessor :logger, :db, :uuid, :resources, :cloud_options,
-                  :spec_properties, :agent_properties, :bosh_ip, :env, :name, :net_conf
+                  :spec_properties, :agent_properties, :env, :name, :net_conf
+
+    attr_reader :base_dir
 
     # rubocop:disable MethodLength
     def configure(config)
-      plugin = cloud_plugin(config)
-
-      config = deep_merge(load_defaults(plugin), config)
+      plugin = config['cloud']['plugin']
+      config = InfrastructureDefaults.merge_for(plugin, config)
 
       @base_dir = config['dir']
       FileUtils.mkdir_p(@base_dir)
@@ -17,9 +19,9 @@ module Bosh::Deployer
       @name = config['name']
       @cloud_options = config['cloud']
       @net_conf = config['network']
-      @bosh_ip = @net_conf['ip']
       @resources = config['resources']
       @env = config['env']
+      @deployment_network = config['deployment_network']
 
       @logger = Logger.new(config['logging']['file'] || STDOUT)
       @logger.level = Logger.const_get(config['logging']['level'].upcase)
@@ -48,8 +50,7 @@ module Bosh::Deployer
       Sequel::Model.plugin :validation_helpers
 
       Bosh::Clouds::Config.configure(self)
-
-      require 'bosh/deployer/models/instance'
+      Models.define_instance_from_table(db[:instances])
 
       @cloud_options['properties']['agent']['mbus'] ||=
         'https://vcap:b00tstrap@0.0.0.0:6868'
@@ -57,6 +58,8 @@ module Bosh::Deployer
       @disk_model = nil
       @cloud = nil
       @networks = nil
+
+      self
     end
     # rubocop:enable MethodLength
 
@@ -68,26 +71,12 @@ module Bosh::Deployer
       @cloud
     end
 
-    def agent
-      uri = URI.parse(agent_url)
-      user, password = uri.userinfo.split(':', 2)
-      uri.userinfo = nil
-      uri.host = bosh_ip
-      Bosh::Agent::HTTPClient.new(uri.to_s, {
-        'user' => user,
-        'password' => password,
-        'reply_to' => uuid,
-      })
-    end
-
     def agent_url
       @cloud_options['properties']['agent']['mbus']
     end
 
     def networks
-      return @networks if @networks
-
-      @networks = {
+      @networks ||= {
         'bosh' => {
           'cloud_properties' => @net_conf['cloud_properties'],
           'netmask' => @net_conf['netmask'],
@@ -97,16 +86,7 @@ module Bosh::Deployer
           'type' => @net_conf['type'],
           'default' => %w(dns gateway)
         }
-      }
-      if @net_conf['vip']
-        @networks['vip'] = {
-          'ip' => @net_conf['vip'],
-          'type' => 'vip',
-          'cloud_properties' => {}
-        }
-      end
-
-      @networks
+      }.merge(vip_network).merge(deployment_network)
     end
 
     def task_checkpoint
@@ -116,7 +96,43 @@ module Bosh::Deployer
       # NoMethodError exceptions.
     end
 
+    def agent_services_ip
+      if net_conf['type'] == 'dynamic'
+        net_conf['vip']
+      elsif @deployment_network
+        @deployment_network['ip']
+      else
+        net_conf['ip']
+      end
+    end
+
+    def client_services_ip
+      net_conf['vip'] || net_conf['ip']
+    end
+
+    def internal_services_ip
+      '127.0.0.1'
+    end
+
     private
+
+    def vip_network
+      return {} unless @net_conf['vip']
+      {
+        'vip' => {
+          'ip' => @net_conf['vip'],
+          'type' => 'vip',
+          'cloud_properties' => {}
+        }
+      }
+    end
+
+    def deployment_network
+      return {} unless @deployment_network
+      {
+        'deployment' => @deployment_network
+      }
+    end
 
     def migrate_cpi
       cpi = @cloud_options['plugin']
@@ -128,25 +144,6 @@ module Bosh::Deployer
         Sequel.extension :migration
         Sequel::TimestampMigrator.new(@db, migrations, table: "#{cpi}_cpi_schema").run
       end
-    end
-
-    def deep_merge(src, dst)
-      src.merge(dst) do |key, old, new|
-        if new.respond_to?(:blank) && new.blank?
-          old
-        elsif old.kind_of?(Hash) && new.kind_of?(Hash)
-          deep_merge(old, new)
-        elsif old.kind_of?(Array) && new.kind_of?(Array)
-          old.concat(new).uniq
-        else
-          new
-        end
-      end
-    end
-
-    def load_defaults(provider)
-      file = File.expand_path("../../../../config/#{provider}_defaults.yml", __FILE__)
-      Psych.load_file(file)
     end
   end
 end

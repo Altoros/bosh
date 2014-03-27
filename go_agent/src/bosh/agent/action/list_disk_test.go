@@ -1,36 +1,57 @@
-package action
+package action_test
 
 import (
+	. "github.com/onsi/ginkgo"
+	"github.com/stretchr/testify/assert"
+
+	. "bosh/agent/action"
 	boshassert "bosh/assert"
+	boshlog "bosh/logger"
 	fakeplatform "bosh/platform/fakes"
 	boshsettings "bosh/settings"
 	fakesettings "bosh/settings/fakes"
-	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
-func TestListDiskShouldBeSynchronous(t *testing.T) {
-	settings := &fakesettings.FakeSettingsService{}
-	platform := fakeplatform.NewFakePlatform()
-	action := newListDisk(settings, platform)
-	assert.False(t, action.IsAsynchronous())
-}
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		var (
+			logger   boshlog.Logger
+			platform *fakeplatform.FakePlatform
+		)
 
-func TestListDiskRun(t *testing.T) {
-	settings := &fakesettings.FakeSettingsService{
-		Disks: boshsettings.Disks{
-			Persistent: map[string]string{
-				"volume-1": "/dev/sda",
-				"volume-2": "/dev/sdb",
-				"volume-3": "/dev/sdc",
-			},
-		},
-	}
-	platform := fakeplatform.NewFakePlatform()
-	platform.MountedDevicePaths = []string{"/dev/sdb", "/dev/sdc"}
+		BeforeEach(func() {
+			platform = fakeplatform.NewFakePlatform()
+			logger = boshlog.NewLogger(boshlog.LEVEL_NONE)
+		})
 
-	action := newListDisk(settings, platform)
-	value, err := action.Run()
-	assert.NoError(t, err)
-	boshassert.MatchesJsonString(t, value, `["volume-2","volume-3"]`)
+		It("list disk should be synchronous", func() {
+			settings := &fakesettings.FakeSettingsService{}
+			action := NewListDisk(settings, platform, logger)
+			assert.False(GinkgoT(), action.IsAsynchronous())
+		})
+
+		It("is not persistent", func() {
+			settings := &fakesettings.FakeSettingsService{}
+			action := NewListDisk(settings, platform, logger)
+			assert.False(GinkgoT(), action.IsPersistent())
+		})
+
+		It("list disk run", func() {
+			settings := &fakesettings.FakeSettingsService{
+				Disks: boshsettings.Disks{
+					Persistent: map[string]string{
+						"volume-1": "/dev/sda",
+						"volume-2": "/dev/sdb",
+						"volume-3": "/dev/sdc",
+					},
+				},
+			}
+			platform.MountedDevicePaths = []string{"/dev/sdb", "/dev/sdc"}
+
+			action := NewListDisk(settings, platform, logger)
+			value, err := action.Run()
+			assert.NoError(GinkgoT(), err)
+			boshassert.MatchesJsonString(GinkgoT(), value, `["volume-2","volume-3"]`)
+		})
+	})
 }

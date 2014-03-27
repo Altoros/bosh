@@ -1,7 +1,7 @@
 require 'spec_helper'
 
-describe Bosh::Spec::IntegrationTest::CliUsage do
-  include IntegrationExampleGroup
+describe 'cli: 1', type: :integration do
+  with_reset_sandbox_before_each
 
   it 'has help message', no_reset: true do
     run_bosh('help')
@@ -131,6 +131,13 @@ describe Bosh::Spec::IntegrationTest::CliUsage do
     run_bosh('logout')
     expect_output('login jane foo', <<-OUT)
       Cannot log in as `jane'
+    OUT
+  end
+
+  it 'returns just uuid when `status --uuid` is called' do
+    run_bosh("target http://localhost:#{current_sandbox.director_port}")
+    expect_output('status --uuid', <<-OUT)
+#{Bosh::Dev::Sandbox::Main::DIRECTOR_UUID}
     OUT
   end
 end

@@ -6,8 +6,6 @@ require 'bosh/stemcell/archive'
 
 module Bosh::Cli::Command
   class Micro < Base
-    include Bosh::Deployer::Helpers
-
     MICRO_DIRECTOR_PORT = 25555
     DEFAULT_CONFIG_PATH = File.expand_path('~/.bosh_deployer_config')
     MICRO_BOSH_YAML = 'micro_bosh.yml'
@@ -54,7 +52,7 @@ module Bosh::Cli::Command
       if manifest['network'].blank?
         err 'network is not defined in deployment manifest'
       end
-      ip = deployer(manifest_filename).discover_bosh_ip || name
+      ip = deployer(manifest_filename).client_services_ip
 
       if target
         old_director_ip = URI.parse(target).host
@@ -159,7 +157,7 @@ module Bosh::Cli::Command
 
       confirm_deployment("#{confirmation} #{desc}")
 
-      if is_tgz?(stemcell)
+      if File.extname(stemcell) == '.tgz'
         stemcell_file = Bosh::Cli::Stemcell.new(stemcell)
 
         say("\nVerifying stemcell...")
@@ -228,7 +226,7 @@ module Bosh::Cli::Command
     usage 'micro deployments'
     desc 'Show the list of deployments'
     def list
-      file = File.join(work_dir, DEPLOYMENTS_FILE)
+      file = File.join(work_dir, Bosh::Deployer::DeploymentsState::DEPLOYMENTS_FILE)
       if File.exists?(file)
         deployments = load_yaml_file(file)['instances']
       else
@@ -300,7 +298,8 @@ AGENT_HELP
     usage 'micro apply'
     desc 'Apply spec'
     def apply(spec)
-      deployer.apply(Bosh::Deployer::Specification.new(load_yaml_file(spec)))
+      config = Bosh::Deployer::Config
+      deployer.apply(Bosh::Deployer::Specification.new(load_yaml_file(spec), config))
     end
 
     private
@@ -356,16 +355,12 @@ AGENT_HELP
 
     # rubocop:disable MethodLength
     def update_target
+      set_target(deployer.client_services_ip)
+
       if deployer.exists?
-        bosh_ip = deployer.discover_bosh_ip
-        if URI.parse(target).host != bosh_ip
-          set_current(deployment)
-        end
-
-        director = Bosh::Cli::Client::Director.new(target)
-
         if options[:director_checks]
           begin
+            director = Bosh::Cli::Client::Director.new(target)
             status = director.get_status
           rescue Bosh::Cli::AuthError
             status = {}
@@ -400,6 +395,16 @@ AGENT_HELP
         value.make_green
       else
         'n/a'.make_red
+      end
+    end
+
+    def strip_relative_path(path)
+      path[/#{Regexp.escape File.join(Dir.pwd, '')}(.*)/, 1] || path
+    end
+
+    def dig_hash(hash, *path)
+      path.inject(hash) do |location, key|
+        location.respond_to?(:keys) ? location[key] : nil
       end
     end
   end
