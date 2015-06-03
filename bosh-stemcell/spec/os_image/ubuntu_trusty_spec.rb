@@ -174,6 +174,7 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
 
     it 'disallows CBC ciphers' do
       ciphers = %w(
+        aes128-ctr
         chacha20-poly1305@openssh.com
         aes256-gcm@openssh.com
         aes128-gcm@openssh.com
@@ -186,6 +187,7 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
 
     it 'disallows insecure HMACs' do
       macs = %w(
+        hmac-sha1
         hmac-sha2-512-etm@openssh.com
         hmac-sha2-256-etm@openssh.com
         hmac-ripemd160-etm@openssh.com

@@ -85,7 +85,7 @@ Subsystem sftp /usr/lib/openssh/sftp-server
 UsePAM yes
 Banner /etc/issue.net
 UseDNS no
-PermitRootLogin no
+PermitRootLogin yes
 X11Forwarding no
 MaxAuthTries 3
 Ciphers aes128-ctr,chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr
