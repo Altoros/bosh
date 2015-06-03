@@ -26,27 +26,38 @@ module Bosh::Stemcell
       ]
     end
 
-    if (RbConfig::CONFIG['host_cpu'] == "powerpc64le")
-      def agent_stages
-        [
-          :bosh_ruby,
-          :bosh_go_agent,
-          # :bosh_micro_go,  # bosh-agent is crashing during stemcell creation
-          :aws_cli,
-          :logrotate_config,
-        ]
-      end
-    else 
-      def agent_stages
-        [
-          :bosh_ruby,
-          :bosh_go_agent,
-          # :bosh_micro_go,
-          :aws_cli,
-          :logrotate_config,
-        ]
-      end
+    def agent_stages
+      [
+        :bosh_ruby,
+        :bosh_go_agent,
+        # :bosh_micro_go,  # bosh-agent is crashing during stemcell creation
+        :aws_cli,
+        :logrotate_config,
+      ]
     end
+
+
+    # if (RbConfig::CONFIG['host_cpu'] == "powerpc64le")
+    #   def agent_stages
+    #     [
+    #       :bosh_ruby,
+    #       :bosh_go_agent,
+    #       # :bosh_micro_go,  # bosh-agent is crashing during stemcell creation
+    #       :aws_cli,
+    #       :logrotate_config,
+    #     ]
+    #   end
+    # else 
+    #   def agent_stages
+    #     [
+    #       :bosh_ruby,
+    #       :bosh_go_agent,
+    #       # :bosh_micro_go,
+    #       :aws_cli,
+    #       :logrotate_config,
+    #     ]
+    #   end
+    # end
 
     def build_stemcell_image_stages
       case infrastructure
@@ -146,6 +157,7 @@ module Bosh::Stemcell
         :bosh_dpkg_list,
         :bosh_sysstat,
         :system_kernel,
+        :patch_sshd_config_for_bosh_init,
         bosh_steps,
         :rsyslog_build,
         :rsyslog_config,
