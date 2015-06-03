@@ -43,7 +43,8 @@ module Bosh::Director
         # we get the deployment here even though it isn't used here, to make sure
         # the call returns a 404 if the deployment doesn't exist
         @deployment_manager.find_by_name(params[:deployment])
-        task = @deployment_manager.create_deployment(@user, request.body, options)
+        latest_cloud_config = Bosh::Director::Api::CloudConfigManager.new.latest
+        task = @deployment_manager.create_deployment(@user, request.body, latest_cloud_config, options)
         redirect "/tasks/#{task.id}"
       end
 
@@ -67,7 +68,8 @@ module Bosh::Director
 
         deployment = @deployment_manager.find_by_name(params[:deployment])
         manifest = request.content_length.nil? ? StringIO.new(deployment.manifest) : request.body
-        task = @deployment_manager.create_deployment(@user, manifest, options)
+        latest_cloud_config = Bosh::Director::Api::CloudConfigManager.new.latest
+        task = @deployment_manager.create_deployment(@user, manifest, latest_cloud_config, options)
         redirect "/tasks/#{task.id}"
       end
 
@@ -136,19 +138,33 @@ module Bosh::Director
       end
 
       get '/' do
-        deployments = Models::Deployment.order_by(:name.asc).map { |deployment|
-          name = deployment.name
+        latest_cloud_config = Api::CloudConfigManager.new.latest
+        deployments = Models::Deployment.order_by(:name.asc).map do |deployment|
+        cloud_config = if deployment.cloud_config.nil?
+                         'none'
+                       elsif deployment.cloud_config == latest_cloud_config
+                         'latest'
+                       else
+                         'outdated'
+                       end
 
-          releases = deployment.release_versions.map { |rv|
-            Hash['name', rv.release.name, 'version', rv.version.to_s]
+          {
+            'name' => deployment.name,
+            'releases' => deployment.release_versions.map do |rv|
+              {
+                'name' => rv.release.name,
+                'version' => rv.version.to_s
+              }
+            end,
+            'stemcells' => deployment.stemcells.map do |sc|
+              {
+                'name' => sc.name,
+                'version' => sc.version
+              }
+            end,
+            'cloud_config' => cloud_config
           }
-
-          stemcells = deployment.stemcells.map { |sc|
-            Hash['name', sc.name, 'version', sc.version]
-          }
-
-          Hash['name', name, 'releases', releases, 'stemcells', stemcells]
-        }
+        end
 
         json_encode(deployments)
       end
@@ -253,8 +269,9 @@ module Bosh::Director
       post '/', :consumes => :yaml do
         options = {}
         options['recreate'] = true if params['recreate'] == 'true'
+        latest_cloud_config = Bosh::Director::Api::CloudConfigManager.new.latest
 
-        task = @deployment_manager.create_deployment(@user, request.body, options)
+        task = @deployment_manager.create_deployment(@user, request.body, latest_cloud_config, options)
         redirect "/tasks/#{task.id}"
       end
 
@@ -274,10 +291,7 @@ module Bosh::Director
       end
 
       get '/:deployment_name/errands' do
-        deployment = @deployment_manager.find_by_name(params[:deployment_name])
-
-        manifest = Psych.load(deployment.manifest)
-        deployment_plan = DeploymentPlan::Planner.parse(manifest, {}, Config.event_log, Config.logger)
+        deployment_plan = load_deployment_plan_without_binding
 
         errands = deployment_plan.jobs.select(&:can_run_as_errand?)
 
@@ -289,6 +303,17 @@ module Bosh::Director
       end
 
       private
+
+      def load_deployment_plan_without_binding
+        deployment_model = @deployment_manager.find_by_name(params[:deployment_name])
+        manifest_hash = Psych.load(deployment_model.manifest)
+        cloud_config_model = deployment_model.cloud_config
+
+        planner_factory = Bosh::Director::DeploymentPlan::PlannerFactory.create(Config.event_log, Config.logger)
+        planner_factory.planner_without_vm_binding(manifest_hash, cloud_config_model, {})
+      end
+
+
       def convert_job_instance_hash(hash)
         hash.reduce([]) do |jobs, kv|
           job, indicies = kv

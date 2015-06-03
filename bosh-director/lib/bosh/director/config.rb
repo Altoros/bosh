@@ -10,7 +10,7 @@ module Bosh::Director
     class << self
       include DnsHelper
 
-      CONFIG_OPTIONS = [
+      attr_accessor(
         :base_dir,
         :cloud_options,
         :db,
@@ -33,17 +33,13 @@ module Bosh::Director
         :enable_snapshots,
         :max_vm_create_tries,
         :nats_uri,
-      ]
-
-      CONFIG_OPTIONS.each do |option|
-        attr_accessor option
-      end
+      )
 
       attr_reader :db_config, :redis_logger_level
 
       def clear
-        CONFIG_OPTIONS.each do |option|
-          self.instance_variable_set("@#{option}".to_sym, nil)
+        self.instance_variables.each do |ivar|
+          self.instance_variable_set(ivar, nil)
         end
 
         Thread.list.each do |thr|
@@ -172,6 +168,8 @@ module Bosh::Director
         db_config = db_config.merge(connection_options)
 
         db = Sequel.connect(db_config)
+        db.extension :connection_validator
+        db.pool.connection_validation_timeout = -1
         if logger
           db.logger = logger
           db.sql_log_level = :debug

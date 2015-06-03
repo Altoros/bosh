@@ -26,7 +26,7 @@ describe Bosh::AwsCloud::Cloud do
     allow(Bosh::AwsCloud::ResourceWait).to receive_messages(for_volume: {volume: volume, state: :deleted})
     allow(Bosh::Clouds::Config).to receive(:task_checkpoint)
 
-    expect(volume).to receive(:delete).once.ordered.and_raise(AWS::EC2::Errors::Client::VolumeInUse)
+    expect(volume).to receive(:delete).once.ordered.and_raise(AWS::EC2::Errors::VolumeInUse)
     expect(volume).to receive(:delete).ordered
 
     cloud.delete_disk('v-foo')
@@ -35,7 +35,9 @@ describe Bosh::AwsCloud::Cloud do
   it 'raises an error if the volume remains in use after every deletion retry' do
     allow(Bosh::Clouds::Config).to receive(:task_checkpoint)
 
-    expect(volume).to receive(:delete).exactly(10).times.and_raise(AWS::EC2::Errors::Client::VolumeInUse)
+    expect(volume).to receive(:delete).
+      exactly(Bosh::AwsCloud::ResourceWait::DEFAULT_WAIT_ATTEMPTS).times.
+      and_raise(AWS::EC2::Errors::VolumeInUse)
 
     expect {
       cloud.delete_disk('v-foo')
@@ -54,5 +56,17 @@ describe Bosh::AwsCloud::Cloud do
     expect(Bosh::AwsCloud::ResourceWait).not_to receive(:for_volume)
 
     cloud.delete_disk('v-foo')
+  end
+
+  it 'raises the Clouds::DiskNotFound error when the disk is not found' do
+    expect(volume).to receive(:delete).and_raise(AWS::EC2::Errors::InvalidVolume::NotFound)
+
+    expect {
+      cloud.delete_disk('v-foo')
+    }.to raise_error { |error|
+      expect(error).to be_a(Bosh::Clouds::DiskNotFound)
+      expect(error.ok_to_retry).to eq(false)
+      expect(error.message).to match(/Disk 'v-foo' not found/)
+    }
   end
 end

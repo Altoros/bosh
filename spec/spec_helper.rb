@@ -27,5 +27,14 @@ end
 
 RSpec.configure do |c|
   c.filter_run :focus => true if ENV['FOCUS']
+  c.filter_run_excluding :db => :postgresql unless ENV['DB'] == 'postgresql'
   c.include BlueShell::Matchers
+  c.before(:suite) do
+    unless ENV['TEST_ENV_NUMBER']
+      agent_build_cmd = File.expand_path('../../go/src/github.com/cloudfoundry/bosh-agent/bin/build', __FILE__)
+      system(agent_build_cmd)
+    end
+  end
 end
+
+BlueShell.timeout = 180 # the cli can be pretty slow

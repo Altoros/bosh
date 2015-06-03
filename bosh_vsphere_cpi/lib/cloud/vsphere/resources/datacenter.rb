@@ -19,9 +19,11 @@ module VSphereCloud
         @clusters = attrs.fetch(:clusters)
         @logger = attrs.fetch(:logger)
         @mem_overcommit = attrs.fetch(:mem_overcommit)
+
+        @cluster_provider = ClusterProvider.new(self, @client, @logger)
       end
 
-      attr_reader :name, :disk_path, :ephemeral_pattern, :persistent_pattern
+      attr_reader :name, :disk_path, :ephemeral_pattern, :persistent_pattern, :mem_overcommit
 
       def mob
         mob = @client.find_by_inventory_path(name)
@@ -64,22 +66,9 @@ module VSphereCloud
       end
 
       def clusters
-        cluster_mobs = Hash[*cluster_tuples.flatten]
-
-        clusters_properties = @client.cloud_searcher.get_properties(
-          cluster_mobs.values, Vim::ClusterComputeResource,
-          Cluster::PROPERTIES, :ensure_all => true)
-
         clusters = {}
         @clusters.each do |cluster_name, cluster_config|
-          cluster_mob = cluster_mobs[cluster_name]
-          raise "Can't find cluster: #{cluster_name}" if cluster_mob.nil?
-
-          cluster_properties = clusters_properties[cluster_mob]
-          raise "Can't find properties for cluster: #{cluster_name}" if cluster_properties.nil?
-
-          cluster = Cluster.new(self, @ephemeral_pattern, @persistent_pattern, @mem_overcommit, cluster_config, cluster_properties, @logger, @client)
-          clusters[cluster.name] = cluster
+          clusters[cluster_name] = @cluster_provider.find(cluster_name, cluster_config)
         end
         clusters
       end
@@ -94,24 +83,28 @@ module VSphereCloud
         datastores
       end
 
-      def pick_persistent_datastore(disk_size_in_mb)
+      def pick_persistent_datastore(size)
         weighted_datastores = []
         persistent_datastores.each_value do |datastore|
-          if datastore.free_space - disk_size_in_mb >= DISK_HEADROOM
+          if datastore.free_space - size >= DISK_HEADROOM
             weighted_datastores << [datastore, datastore.free_space]
           end
         end
 
-        Util.weighted_random(weighted_datastores)
-      end
+        type = :persistent
+        datastores = persistent_datastores.values
+        available_datastores = datastores.reject { |datastore| datastore.free_space - size < DISK_HEADROOM }
 
-      private
+        @logger.debug("Looking for a #{type} datastore with #{size}MB free space.")
+        @logger.debug("All datastores: #{datastores.map(&:debug_info)}")
+        @logger.debug("Datastores with enough space: #{available_datastores.map(&:debug_info)}")
 
-      def cluster_tuples
-        cluster_tuples = @client.cloud_searcher.get_managed_objects(
-          Vim::ClusterComputeResource, root: mob, include_name: true)
-        cluster_tuples.delete_if { |name, _| !@clusters.has_key?(name) }
-        cluster_tuples
+        selected_datastore = Util.weighted_random(available_datastores.map { |datastore| [datastore, datastore.free_space] })
+
+        if selected_datastore.nil?
+          raise Bosh::Clouds::NoDiskSpace.new(true), "Couldn't find a #{type} datastore with #{size}MB of free space. Found:\n #{datastores.map(&:debug_info).join("\n ")}\n"
+        end
+        selected_datastore
       end
     end
   end

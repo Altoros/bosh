@@ -66,6 +66,17 @@ module BoshExtensions
   end
 
   def load_yaml_file(path, expected_type = Hash)
+    yaml_str = read_yaml_file(path)
+
+    yaml = Psych::load(yaml_str)
+    if expected_type && !yaml.is_a?(expected_type)
+      err("Incorrect YAML structure in `#{path}': expected #{expected_type} at the root".make_red)
+    end
+
+    yaml
+  end
+
+  def read_yaml_file(path)
     err("Cannot find file `#{path}'".make_red) unless File.exist?(path)
 
     begin
@@ -76,16 +87,10 @@ module BoshExtensions
 
     begin
       Bosh::Cli::YamlHelper.check_duplicate_keys(yaml_str)
-    rescue => e
+    rescue Exception => e # on ruby 1.9.3 Psych::SyntaxError isn't a StandardError
       err("Incorrect YAML structure in `#{path}': #{e}".make_red)
     end
-
-    yaml = Psych::load(yaml_str)
-    if expected_type && !yaml.is_a?(expected_type)
-      err("Incorrect YAML structure in `#{path}': expected #{expected_type} at the root".make_red)
-    end
-
-    yaml
+    yaml_str
   end
 
   def write_yaml(manifest, path)
@@ -125,11 +130,17 @@ module BoshStringExtensions
   end
 
   def make_color(color_code)
-    if Bosh::Cli::Config.output &&
-       Bosh::Cli::Config.output.tty? &&
-       Bosh::Cli::Config.colorize &&
-       COLOR_CODES[color_code]
+    # invalid color
+    return self if !COLOR_CODES[color_code]
 
+    # output disabled
+    return self if !Bosh::Cli::Config.output
+
+    # colorization explicitly disabled
+    return self if Bosh::Cli::Config.colorize == false
+
+    # colorization explicitly enabled, or output is tty
+    if Bosh::Cli::Config.colorize || Bosh::Cli::Config.output.tty?
       "#{COLOR_CODES[color_code]}#{self}\e[0m"
     else
       self

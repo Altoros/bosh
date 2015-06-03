@@ -1,3 +1,98 @@
+## 2941
+
+New Features:
+
+  * cpi: aws: Light stemcells can be booted in all regions [8d21386]
+
+Improvements:
+
+  * stemcell: Bump OS images [5b7e612]
+        - reduce daily and weekly cron load
+        - randomize cron start times to reduce congestion
+        - remove unnecessary packages to make OS image smaller
+  * director: Made gateway a mandatory param for manual network subnets [1145448]
+
+## 2922
+
+New Features:
+
+  * cli: Ignore non-existent deployment in `delete deployment` cmd
+        to make CLI automation easier [dd6801e]
+  * cli: Add cloud config into to 'bosh deployments' output
+        to know if deployment is using latest cloud config [bcf1d4d]
+
+Improvements:
+
+  * stemcell: ubuntu: Do not configure eth0 since the Agent
+        should configure networking during its start up [e481b4a]
+  * director: Flush DNS cache after modifying DNS records [2137b55]
+  * stemcell: Change rake tasks to start producting CentOS 7 stemcells [e5bceba]
+  * agent: Bump agent [752ff10]
+        - set permissions on config files
+        - more changes to network bootstrapping
+
+## 2915
+
+New Features:
+
+  * cli: Allow passing --all flag to `bosh cleanup`
+          to delete all unused releases and stemcells [2bc5e62]
+  * cli: Modified cck --auto so that it recreated VMs
+          if they are missing [05ee580]
+
+Improvements:
+
+  * cpi: aws: Retry attaching disk for upto 10 mins if disk is in
+          VolumeInUse state, since sometimes AWS is slow
+          to propagate disk's true state. [f654c5f]
+  * cli: Permit creation of dev release with version [5d433d6]
+  * director: Bump nokogiri to 1.6.6, vcloud to 0.7.3 [39c6cdf]
+  * stemcell: Ensure stemcell stages run as UID 1000
+          (vcap's UID on stemcells) so that vcap owned files
+          are still owned by vcap when stemcell boots up [56dd84c]
+  * stemcell: Add hmac-sha1 back as an allowed sshd MAC.
+          Needed by golang and java ssh libraries. [a99c833]
+  * stemcell: Add syslog user to vcap group so rsyslog
+          can write to /var/vcap/sys/log/ [b4fea21]
+  * cpi: openstack: Stop artificially limiting volume sizes to 1TiB [9bda2ae]
+  * agent: Bump agent to pull-in set of changes to networking [c4f211a]
+
+## 2905
+
+Improvements:
+
+  * stemcell: rhel: Introduced 'rhel' OS type, supporting only version 7 [5491fec]
+  * stemcell: rhel: Unsubscribe system from RHN once OS image has been built [259e787]
+  * cpi: vsphere: Log and print more info when we can't find a datastore for a disk [b5488e1]
+
+## 2902
+
+New Features:
+
+  * cli: Introduce UAA authentication
+
+Improvements:
+
+  * stemcell: Do not verify exact kernel version to ease development workflow [b1f7afc]
+
+Bug Fixes:
+
+  * cpi: vsphere: Don't raise an exception when finding a disk
+          if the folder doesn't exist since cpi can be configured
+          with multiple folders [f7c46db]
+  * cli: Compiling a release now places LICENSE/NOTICE at the root [9bbb51d]
+
+## 2891
+
+Improvements:
+
+  * stemcell: ubuntu: Bump libssl [f690d2e]
+  * stemcell: ubuntu: Bump libgnutls26 [622ffe8]
+
+Bug Fixes:
+
+  * cli: Compiling a release places LICENSE/NOTICE at the root [58f9848]
+
 ## 2881
 
 Improvements:
@@ -13,7 +108,8 @@ Improvements:
   * stemcell: ubuntu: Bump to get 3.16 kernel
         and get libc6 from 2.19-0ubuntu6.6 [5154430]
         [story](https://www.pivotaltracker.com/story/show/89216658)
-  * director: Provide better Director job configuration for external CPIs [3634979]
+  * director: Provide better Director job configuration f
+        or external CPIs [3634979]
 
 ## 2858
 

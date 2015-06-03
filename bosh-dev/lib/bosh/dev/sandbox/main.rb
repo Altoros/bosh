@@ -11,6 +11,7 @@ require 'bosh/dev/sandbox/director_config'
 require 'bosh/dev/sandbox/port_provider'
 require 'bosh/dev/sandbox/services/director_service'
 require 'bosh/dev/sandbox/services/nginx_service'
+require 'bosh/dev/sandbox/services/connection_proxy_service'
 require 'cloud/dummy'
 require 'logging'
 
@@ -41,6 +42,8 @@ module Bosh::Dev::Sandbox
     attr_reader :director_service
     attr_reader :port_provider
 
+    attr_reader :database_proxy
+
     alias_method :db_name, :name
     attr_reader :blobstore_storage_dir
 
@@ -57,11 +60,14 @@ module Bosh::Dev::Sandbox
         password: ENV['TRAVIS'] ? '' : 'password',
       }
 
+      logger = Logging.logger(STDOUT)
+      logger.level = ENV.fetch('LOG_LEVEL', 'DEBUG')
+
       new(
         db_opts,
         ENV['DEBUG'],
         ENV['TEST_ENV_NUMBER'].to_i,
-        Logging.logger(STDOUT),
+        logger,
       )
     end
 
@@ -122,6 +128,8 @@ module Bosh::Dev::Sandbox
       FileUtils.mkdir_p(cloud_storage_dir)
       FileUtils.rm_rf(logs_path)
       FileUtils.mkdir_p(logs_path)
+
+      @database_proxy && @database_proxy.start
 
       @redis_process.start
       @redis_socket_connector.try_to_connect
@@ -192,6 +200,8 @@ module Bosh::Dev::Sandbox
       @uaa_process.stop
 
       @database.drop_db
+      @database_proxy && @database_proxy.stop
+
       FileUtils.rm_f(dns_db_path)
       FileUtils.rm_rf(agent_tmp_path)
       FileUtils.rm_rf(blobstore_storage_dir)
@@ -334,12 +344,13 @@ module Bosh::Dev::Sandbox
       @logger.error("#{DEBUG_HEADER} end #{service.description} stderr #{DEBUG_HEADER}")
     end
 
-
     def setup_database(db_opts)
       if db_opts[:type] == 'mysql'
         @database = Mysql.new(@name, @logger, db_opts[:user], db_opts[:password])
       else
-        @database = Postgresql.new(@name, @logger)
+        @database = Postgresql.new(@name, @logger, @port_provider.get_port(:postgres))
+        # all postgres connections go through this proxy (for testing automatic reconnect)
+        @database_proxy = ConnectionProxyService.new("127.0.0.1", 5432, @port_provider.get_port(:postgres), @logger)
       end
     end
 
@@ -365,17 +376,18 @@ module Bosh::Dev::Sandbox
       arguments = uaa_ports.map { |pair| "-D#{pair.join('=')}" }
       arguments << %W(-P cargo.port=#{uaa_port})
 
+      log_location = "#{base_log_path}.uaa.out"
       @uaa_process = Service.new(
-        ['./gradlew', arguments, 'run'].flatten,
+        ['./gradlew', arguments, 'run',  '--stacktrace'].flatten,
         {
-          output: "#{base_log_path}.uaa.out",
+          output: log_location,
           working_dir: UAA_ASSETS_DIR,
           env: { 'UAA_CONFIG_PATH' => UAA_CONFIG_DIR }
         },
         @logger,
       )
 
-      @uaa_socket_connector = SocketConnector.new('uaa', 'localhost', uaa_port, @logger)
+      @uaa_socket_connector = SocketConnector.new('uaa', 'localhost', uaa_port, log_location, @logger)
     end
 
     def setup_nats
@@ -387,12 +399,12 @@ module Bosh::Dev::Sandbox
         @logger
       )
 
-      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @logger)
+      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @nats_log_path, @logger)
     end
 
     def setup_redis
       @redis_process = Service.new(%W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
-      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, @logger)
+      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, 'unknown', @logger)
       Bosh::Director::Config.redis_options = {host: 'localhost', port: redis_port}
     end
 

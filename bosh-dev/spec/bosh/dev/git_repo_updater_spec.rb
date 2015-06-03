@@ -10,6 +10,7 @@ module Bosh::Dev
     before do
       Dir.chdir(remote_dir) do
         `git init`
+        config_git_user
         File.write('README.md', 'hiya!')
         `git add .`
         `git commit -m 'Initial commit'`
@@ -27,7 +28,12 @@ module Bosh::Dev
     end
 
     context 'when there are changes' do
-      before { Dir.chdir(local_dir) { File.write('README.md', 'new contents') } }
+      before do
+        Dir.chdir(local_dir) do
+          config_git_user
+          File.write('README.md', 'new contents')
+        end
+      end
 
       it 'commits and pushes the changes' do
         original_commit = get_head_commit(remote_dir)

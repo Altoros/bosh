@@ -37,34 +37,11 @@ module Bosh::Stemcell
               :bosh_monit,
               :bosh_ntpdate,
               :bosh_sudoers,
-              :rsyslog_build,
               :rsyslog_config,
               :delay_monit_start,
               :system_grub,
               :vim_tiny,
-            ]
-          )
-        end
-      end
-
-      context 'when CentOS 6' do
-        let(:operating_system) { OperatingSystem.for('centos', '6') }
-
-        it 'has the correct stages' do
-          expect(stage_collection.operating_system_stages).to eq(
-            [
-              :base_centos,
-              :base_centos_packages,
-              :base_ssh,
-              :bosh_sysctl,
-              :bosh_users,
-              :bosh_monit,
-              :bosh_ntpdate,
-              :bosh_sudoers,
-              :rsyslog_build,
-              :rsyslog_config,
-              :delay_monit_start,
-              :system_grub,
+              :cron_config,
             ]
           )
         end
@@ -87,6 +64,7 @@ module Bosh::Stemcell
               :rsyslog_config,
               :delay_monit_start,
               :system_grub,
+              :cron_config,
             ]
           )
         end
@@ -110,6 +88,7 @@ module Bosh::Stemcell
               :delay_monit_start,
               :system_grub,
               :rhel_unsubscribe,
+              :cron_config,
             ]
           )
         end
@@ -160,7 +139,7 @@ module Bosh::Stemcell
 
         let(:aws_build_stemcell_image_stages) {
           [
-            :system_aws_network,
+            :system_network,
             :system_aws_modules,
             :system_parameters,
             :bosh_clean,
@@ -208,7 +187,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
-                :system_openstack_network_centos,
+                :system_network,
                 :system_parameters,
                 :bosh_clean,
                 :bosh_harden,
@@ -232,7 +211,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
-                :system_openstack_network,
+                :system_network,
                 :system_openstack_clock,
                 :system_openstack_modules,
                 :system_parameters,
@@ -262,7 +241,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
-                #:system_open_vm_tools,
+                :system_network,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,
@@ -282,6 +261,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
+                :system_network,
                 :system_open_vm_tools,
                 :system_vsphere_cdrom,
                 :system_parameters,
@@ -306,6 +286,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
+                :system_network,
                 :system_open_vm_tools,
                 :system_vsphere_cdrom,
                 :system_parameters,
@@ -326,7 +307,7 @@ module Bosh::Stemcell
           it 'has the correct stages' do
             expect(stage_collection.build_stemcell_image_stages).to eq(
               [
-                #:system_open_vm_tools,
+                :system_network,
                 :system_vsphere_cdrom,
                 :system_parameters,
                 :bosh_clean,

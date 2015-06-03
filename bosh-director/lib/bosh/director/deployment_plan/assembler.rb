@@ -5,26 +5,21 @@ module Bosh::Director
     include LockHelper
     include IpUtil
 
-    def initialize(deployment_plan)
+    def initialize(deployment_plan, stemcell_manager, cloud, blobstore, logger, event_log)
       @deployment_plan = deployment_plan
-      @cloud = Config.cloud
-      @logger = Config.logger
-      @event_log = Config.event_log
-      @stemcell_manager = Api::StemcellManager.new
-      @blobstore = App.instance.blobstores.blobstore
-    end
-
-    # Binds deployment DB record to a plan
-    # @return [void]
-    def bind_deployment
-      @deployment_plan.bind_model
+      @cloud = cloud
+      @logger = logger
+      @event_log = event_log
+      @stemcell_manager = stemcell_manager
+      @blobstore = blobstore
     end
 
     # Binds release DB record(s) to a plan
     # @return [void]
     def bind_releases
-      with_release_locks(@deployment_plan) do
-        @deployment_plan.releases.each do |release|
+      releases = @deployment_plan.releases
+      with_release_locks(releases.map(&:name)) do
+        releases.each do |release|
           release.bind_model
         end
       end
@@ -82,7 +77,7 @@ module Bosh::Director
         @logger.debug("Releasing all network reservations for VM `#{vm_model.cid}'")
         reservations.each do |network_name, reservation|
           @logger.debug("Releasing #{reservation.type} network reservation `#{network_name}' for VM `#{vm_model.cid}'")
-          resource_pool.network.release(reservation)
+          @deployment_plan.network(network_name).release(reservation)
         end
 
         @logger.debug("Deleting VM `#{vm_model.cid}' with static network reservation")
@@ -317,59 +312,9 @@ module Bosh::Director
       end
     end
 
-    # Calculates configuration checksums for all jobs in this deployment plan
-    # @return [void]
-    def bind_configuration
-      @deployment_plan.jobs_starting_on_deploy.each do |job|
-        JobRenderer.new(job, @blobstore).render_job_instances
-      end
-    end
-
     def bind_dns
       binder = DeploymentPlan::DnsBinder.new(@deployment_plan)
       binder.bind_deployment
-    end
-
-    def bind_instance_vms
-      jobs = @deployment_plan.jobs_starting_on_deploy
-      instances = jobs.map(&:instances).flatten
-
-      binder = DeploymentPlan::InstanceVmBinder.new(@event_log)
-      binder.bind_instance_vms(instances)
-    end
-
-    def delete_unneeded_vms
-      unneeded_vms = @deployment_plan.unneeded_vms
-      if unneeded_vms.empty?
-        @logger.info('No unneeded vms to delete')
-        return
-      end
-
-      @event_log.begin_stage('Deleting unneeded VMs', unneeded_vms.size)
-      ThreadPool.new(max_threads: Config.max_threads, logger: @logger).wrap do |pool|
-        unneeded_vms.each do |vm_model|
-          pool.process do
-            @event_log.track(vm_model.cid) do
-              @logger.info("Delete unneeded VM #{vm_model.cid}")
-              @cloud.delete_vm(vm_model.cid)
-              vm_model.destroy
-            end
-          end
-        end
-      end
-    end
-
-    def delete_unneeded_instances
-      unneeded_instances = @deployment_plan.unneeded_instances
-      if unneeded_instances.empty?
-        @logger.info('No unneeded instances to delete')
-        return
-      end
-
-      event_log_stage = @event_log.begin_stage('Deleting unneeded instances', unneeded_instances.size)
-      instance_deleter = InstanceDeleter.new(@deployment_plan)
-      instance_deleter.delete_instances(unneeded_instances, event_log_stage)
-      @logger.info('Deleted no longer needed instances')
     end
   end
 end

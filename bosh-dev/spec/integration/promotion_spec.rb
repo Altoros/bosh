@@ -7,14 +7,7 @@ require 'bosh/dev/git_branch_merger'
 require 'open3'
 require 'bosh/dev/command_helper'
 
-describe 'promotion', type: :integration do
-  def exec_cmd(cmd)
-    logger.info("Executing: #{cmd}")
-    stdout, stderr, status = Open3.capture3(cmd)
-    raise "Failed executing '#{cmd}'\nSTDOUT: '#{stdout}', \nSTDERR: '#{stderr}'" unless status.success?
-    [stdout, stderr, status]
-  end
-
+describe 'promotion' do
   let!(:origin_repo_path) { Dir.mktmpdir(['promote_test_repo', '.git']) }
   after { FileUtils.rm_rf(origin_repo_path) }
 
@@ -27,10 +20,9 @@ describe 'promotion', type: :integration do
     end
     Dir.chdir(workspace_path) do
       exec_cmd("git clone #{origin_repo_path} .")
+      config_git_user
       File.write('initial-file.go', 'initial-code')
       exec_cmd('git add -A')
-      exec_cmd('git config --local user.email "fake@example.com"')
-      exec_cmd('git config --local user.name "Fake User"')
       exec_cmd("git commit -m 'initial commit'")
       exec_cmd('git push origin master')
     end
@@ -51,6 +43,7 @@ describe 'promotion', type: :integration do
     Dir.chdir(workspace_path) do
       # feature development
       exec_cmd("git clone #{origin_repo_path} .")
+      config_git_user
       exec_cmd('git checkout master')
       exec_cmd('git checkout -b feature_branch')
       File.write('feature-file.go', 'feature-code')
@@ -74,6 +67,7 @@ describe 'promotion', type: :integration do
     # promote (end of CI pipeline)
     Dir.chdir(workspace_path) do
       exec_cmd("git clone #{origin_repo_path} .")
+      config_git_user
       exec_cmd('git checkout feature_branch')
 
       # instead of getting the patch from S3, copy from the local patch file

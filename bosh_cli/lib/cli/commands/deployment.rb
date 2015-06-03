@@ -1,4 +1,3 @@
-# Copyright (c) 2009-2012 VMware, Inc.
 
 module Bosh::Cli::Command
   class Deployment < Base
@@ -87,11 +86,13 @@ module Bosh::Cli::Command
       recreate = !!options[:recreate]
       redact_diff = !!options[:redact_diff]
 
-      manifest_yaml = prepare_deployment_manifest(
-        :yaml => true, :resolve_properties => true)
+      manifest_yaml = prepare_deployment_manifest(:yaml => true, :resolve_properties => true)
 
-      inspect_deployment_changes(Psych.load(manifest_yaml),
-        interactive: interactive?, redact_diff: redact_diff)
+      inspect_deployment_changes(
+        Psych.load(manifest_yaml),
+        interactive: interactive?,
+        redact_diff: redact_diff
+      )
       say('Please review all changes carefully'.make_yellow) if interactive?
 
       deployment_name = File.basename(deployment)
@@ -126,9 +127,12 @@ module Bosh::Cli::Command
         return
       end
 
-      status, task_id = director.delete_deployment(name, :force => force)
-
-      task_report(status, task_id, "Deleted deployment `#{name}'")
+      begin
+        status, result = director.delete_deployment(name, :force => force)
+        task_report(status, result, "Deleted deployment `#{name}'")
+      rescue Bosh::Cli::ResourceNotFound
+        task_report(:done, nil, "Skipped delete of missing deployment `#{name}'")
+      end
     end
 
     # bosh validate jobs
@@ -204,17 +208,9 @@ module Bosh::Cli::Command
       err("No deployments") if deployments.empty?
 
       deployments_table = table do |t|
-        t.headings = %w(Name Release(s) Stemcell(s))
+        t.headings = ['Name', 'Release(s)', 'Stemcell(s)', 'Cloud Config']
         deployments.each do |d|
-          row = if (d.has_key?("releases") && d.has_key?("stemcells"))
-            row_for_deployments_table(d)
-          else
-            # backwards compatible but slow: pull down each deployment
-            # manifest to get releases and stemcells in use
-            row_for_deployments_table_by_manifest(d["name"])
-          end
-
-          t.add_row(row)
+          t.add_row(row_for_deployments_table(d))
           t.add_separator unless d == deployments.last
         end
       end
@@ -265,27 +261,9 @@ module Bosh::Cli::Command
       stemcells = names_and_versions_from(deployment["stemcells"])
       releases  = names_and_versions_from(deployment["releases"])
 
-      [deployment["name"], releases.join("\n"), stemcells.join("\n")]
+      [deployment["name"], releases.join("\n"), stemcells.join("\n"), deployment.fetch("cloud_config", "none")]
     end
-
-    def row_for_deployments_table_by_manifest(deployment_name)
-      raw_manifest = director.get_deployment(deployment_name)
-      if (raw_manifest.has_key?("manifest"))
-        manifest = Psych.load(raw_manifest["manifest"])
-
-        stemcells = manifest["resource_pools"].map { |rp|
-          rp["stemcell"].values_at("name", "version").join("/")
-        }.sort.uniq
-
-        releases = manifest["releases"] || [manifest["release"]]
-        releases = names_and_versions_from(releases)
-
-        [manifest["name"], releases.join("\n"), stemcells.join("\n")]
-      else
-        [deployment_name, "n/a", "n/a"]
-      end
-    end
-
+    
     def names_and_versions_from(arr)
       arr.map { |hash|
         hash.values_at("name", "version").join("/")

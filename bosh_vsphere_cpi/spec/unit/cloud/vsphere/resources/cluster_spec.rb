@@ -2,15 +2,18 @@ require 'spec_helper'
 
 class VSphereCloud::Resources
   describe Cluster do
-    subject(:cluster) { VSphereCloud::Resources::Cluster.new(
-      datacenter,
-      /eph/,
-      /persist/,
-      1.0,
-      cluster_config,
-      properties,
-      logger,
-      client) }
+    subject(:cluster) do
+      VSphereCloud::Resources::Cluster.new(
+        datacenter,
+        /eph/,
+        /persist/,
+        1.0,
+        cluster_config,
+        properties,
+        logger,
+        client
+      )
+    end
 
     let(:datacenter) { instance_double('VSphereCloud::Resources::Datacenter') }
 
@@ -63,18 +66,6 @@ class VSphereCloud::Resources
       }
     end
 
-    before do
-      allow(cloud_searcher).to receive(:get_properties)
-                       .with('fake-datastore-name', VimSdk::Vim::Datastore, Datastore::PROPERTIES)
-                       .and_return(fake_datastore_properties)
-    end
-
-    before do
-      allow(ResourcePool).to receive(:new)
-                             .with(client, logger, cluster_config, fake_resource_pool_mob)
-                             .and_return(fake_resource_pool)
-    end
-
     let(:fake_runtime_info) do
       instance_double(
         'VimSdk::Vim::ResourcePool::RuntimeInfo',
@@ -83,14 +74,19 @@ class VSphereCloud::Resources
     end
 
     before do
-      allow(cloud_searcher).to receive(:get_properties)
-                       .with(fake_resource_pool_mob, VimSdk::Vim::ResourcePool, "summary")
-                       .and_return({
-                                     'summary' => instance_double(
-                                       'VimSdk::Vim::ResourcePool::Summary',
-                                       runtime: fake_runtime_info
-                                     )
-                                   })
+      allow(ResourcePool).to receive(:new).with(
+        client, logger, cluster_config, fake_resource_pool_mob
+      ).and_return(fake_resource_pool)
+
+      allow(cloud_searcher).to receive(:get_properties).with(
+        'fake-datastore-name', VimSdk::Vim::Datastore, Datastore::PROPERTIES
+      ).and_return(fake_datastore_properties)
+
+      allow(cloud_searcher).to receive(:get_properties).with(
+        fake_resource_pool_mob, VimSdk::Vim::ResourcePool, "summary"
+      ).and_return({
+        'summary' => instance_double('VimSdk::Vim::ResourcePool::Summary', runtime: fake_runtime_info)
+      })
     end
 
     describe '#initialize' do
@@ -325,12 +321,12 @@ class VSphereCloud::Resources
       end
 
       context 'when there are persistent datastores' do
-        it "logs a bunch of debug info since it's really hard to know what happening otherwise" do
+        it 'logs a bunch of debug info since it is really hard to know what happening otherwise' do
           cluster.pick_persistent(10001)
-          expect(log_output.string).to include("Looking for a persistent datastore in fake-cluster-name with 10001MB free space in:")
-          expect(log_output.string).to include("persistent_1 (10000MB free of 20000MB capacity)")
-          expect(log_output.string).to include("persistent_2 (20000MB free of 40000MB capacity)")
-          expect(log_output.string).to include("Picking a random datastore (weighted by free space) from: persistent_2")
+
+          expect(log_output.string).to include 'Looking for a persistent datastore in fake-cluster-name with 10001MB free space.'
+          expect(log_output.string).to include 'All datastores: ["persistent_1 (10000MB free of 20000MB capacity)", "persistent_2 (20000MB free of 40000MB capacity)"]'
+          expect(log_output.string).to include 'Datastores with enough space: ["persistent_2 (20000MB free of 40000MB capacity)"]'
         end
 
         context 'and there is more free space than the disk threshold' do
@@ -358,8 +354,9 @@ class VSphereCloud::Resources
               cluster.pick_persistent(20000 - (DISK_HEADROOM - 1))
             }.to raise_error do |error|
               expect(error).to be_an_instance_of(Bosh::Clouds::NoDiskSpace)
+              expect(error.ok_to_retry).to be(true)
               expect(error.message).to eq(<<-MSG)
-Couldn't find a persistent datastore with 18977MB of free space in fake-cluster-name. Found:
+Couldn't find a persistent datastore with 18977MB of free space accessible from cluster 'fake-cluster-name'. Found:
  persistent_1 (10000MB free of 20000MB capacity)
  persistent_2 (20000MB free of 40000MB capacity)
 MSG

@@ -10,7 +10,7 @@ describe 'health_monitor: 1', type: :integration do
   it 'HM can be queried for stats' do
     deployment_hash = Bosh::Spec::Deployments.simple_manifest
     deployment_hash['jobs'][0]['instances'] = 1
-    deploy_simple(manifest_hash: deployment_hash)
+    deploy_from_scratch(manifest_hash: deployment_hash)
 
     waiter.wait(20) do
       varz_json = RestClient.get("http://admin:admin@localhost:#{current_sandbox.hm_port}/varz")
@@ -22,7 +22,7 @@ describe 'health_monitor: 1', type: :integration do
 
   # ~1m20s
   it 'resurrects stateless nodes' do
-    deploy_simple
+    deploy_from_scratch
 
     original_vm = director.vm('foobar/0')
     original_vm.kill_agent
@@ -32,7 +32,7 @@ describe 'health_monitor: 1', type: :integration do
 
   # ~8m
   it 'does not resurrect stateless nodes when paused' do
-    deploy_simple
+    deploy_from_scratch
 
     bosh_runner.run('vm resurrection foobar 0 off')
     original_vm = director.vm('foobar/0')
@@ -46,7 +46,7 @@ describe 'health_monitor: 1', type: :integration do
 
     deployment_hash = Bosh::Spec::Deployments.simple_manifest
     deployment_hash['jobs'][0]['instances'] = 2
-    deploy_simple(manifest_hash: deployment_hash)
+    deploy_from_scratch(manifest_hash: deployment_hash)
 
     bosh_runner.run('vm resurrection foobar 1 off')
 
@@ -74,7 +74,7 @@ describe 'health_monitor: 1', type: :integration do
 
     deployment_hash = Bosh::Spec::Deployments.simple_manifest
     deployment_hash['jobs'][0]['instances'] = 2
-    deploy_simple(manifest_hash: deployment_hash)
+    deploy_from_scratch(manifest_hash: deployment_hash)
 
     director.vm('foobar/0').kill_agent
     director.vm('foobar/1').kill_agent
@@ -93,7 +93,7 @@ describe 'health_monitor: 1', type: :integration do
   it 'notifies health monitor about job failures' do
     deployment_hash = Bosh::Spec::Deployments.simple_manifest
     deployment_hash['jobs'][0]['instances'] = 1
-    deploy_simple(manifest_hash: deployment_hash)
+    deploy_from_scratch(manifest_hash: deployment_hash)
 
     director.vm('foobar/0').fail_job
     waiter.wait(20) { expect(health_monitor.read_log).to match(%r{\[ALERT\] Alert @ .* fake-monit-description}) }

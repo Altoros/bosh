@@ -297,16 +297,16 @@ module Bosh::OpenStackCloud
         @logger.info("Creating new server `#{server.id}'...")
         begin
           wait_resource(server, :active, :state)
+
+          @logger.info("Configuring network for server `#{server.id}'...")
+          network_configurator.configure(@openstack, server)
         rescue Bosh::Clouds::CloudError => e
           @logger.warn("Failed to create server: #{e.message}")
 
           with_openstack { server.destroy }
 
-          raise Bosh::Clouds::VMCreationFailed.new(true)
+          raise Bosh::Clouds::VMCreationFailed.new(true), e.message
         end
-
-        @logger.info("Configuring network for server `#{server.id}'...")
-        network_configurator.configure(@openstack, server)
 
         @logger.info("Updating settings for server `#{server.id}'...")
         settings = initial_agent_settings(server_name, agent_id, network_spec, environment,
@@ -403,7 +403,6 @@ module Bosh::OpenStackCloud
       with_thread_name("create_disk(#{size}, #{cloud_properties}, #{server_id})") do
         raise ArgumentError, 'Disk size needs to be an integer' unless size.kind_of?(Integer)
         cloud_error('Minimum disk size is 1 GiB') if (size < 1024)
-        cloud_error('Maximum disk size is 1 TiB') if (size > 1024 * 1000)
 
         volume_params = {
           :display_name => "volume-#{generate_unique_name}",
@@ -445,7 +444,6 @@ module Bosh::OpenStackCloud
       with_thread_name("create_boot_disk(#{size}, #{stemcell_id}, #{availability_zone}, #{boot_volume_cloud_properties})") do
         raise ArgumentError, "Disk size needs to be an integer" unless size.kind_of?(Integer)
         cloud_error("Minimum disk size is 1 GiB") if (size < 1024)
-        cloud_error("Maximum disk size is 1 TiB") if (size > 1024 * 1000)
 
         volume_params = {
           :display_name => "volume-#{generate_unique_name}",
@@ -549,13 +547,14 @@ module Bosh::OpenStackCloud
     # @raise [Bosh::Clouds::CloudError] if volume is not found
     def snapshot_disk(disk_id, metadata)
       with_thread_name("snapshot_disk(#{disk_id})") do
+        metadata = Hash[metadata.map{|key,value| [key.to_s, value] }]
         volume = with_openstack { @openstack.volumes.get(disk_id) }
         cloud_error("Volume `#{disk_id}' not found") unless volume
 
         devices = []
         volume.attachments.each { |attachment| devices << attachment['device'] unless attachment.empty? }
 
-        description = [:deployment, :job, :index].collect { |key| metadata[key] }
+        description = ['deployment', 'job', 'index'].collect { |key| metadata[key] }
         description << devices.first.split('/').last unless devices.empty?
         snapshot_params = {
           :name => "snapshot-#{generate_unique_name}",
@@ -977,4 +976,3 @@ module Bosh::OpenStackCloud
     end
   end
 end
-

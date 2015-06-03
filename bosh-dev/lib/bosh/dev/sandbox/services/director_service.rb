@@ -18,13 +18,14 @@ module Bosh::Dev::Sandbox
       @director_tmp_path = director_tmp_path
       @director_config = director_config
 
+      log_location = "#{base_log_path}.director.out"
       @process = Service.new(
         %W[bosh-director -c #{@director_config}],
-        {output: "#{base_log_path}.director.out"},
+        {output: log_location},
         @logger,
       )
 
-      @socket_connector = SocketConnector.new('director', 'localhost', director_port, @logger)
+      @socket_connector = SocketConnector.new('director', 'localhost', director_port, log_location, @logger)
 
       @worker_processes = 3.times.map do |index|
         Service.new(
@@ -75,10 +76,7 @@ module Bosh::Dev::Sandbox
 
     def start_workers
       @worker_processes.each(&:start)
-      until resque_is_ready?
-        @logger.debug('Waiting for Resque workers to start')
-        sleep 0.5
-      end
+      sleep 0.5 until resque_is_ready?
     end
 
     def stop_workers

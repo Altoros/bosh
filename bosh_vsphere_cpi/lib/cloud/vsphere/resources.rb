@@ -28,7 +28,7 @@ module VSphereCloud
       @lock.synchronize do
         cluster = @datacenter.clusters[cluster_name]
         if cluster.nil?
-          raise Bosh::Clouds::NoDiskSpace.new(true), "Couldn't find cluster '#{cluster_name}'. Found #{@datacenter.clusters.values.map(&:name).join(", ")}"
+          raise Bosh::Clouds::CloudError, "Couldn't find cluster '#{cluster_name}'. Found #{@datacenter.clusters.values.map(&:name)}"
         end
 
         datastore = cluster.pick_persistent(disk_size_in_mb)
@@ -107,11 +107,6 @@ module VSphereCloud
     def pick_ephemeral_datastore(cluster, disk_size_in_mb)
       @lock.synchronize do
         datastore = cluster.pick_ephemeral(disk_size_in_mb)
-        if datastore.nil?
-          raise Bosh::Clouds::NoDiskSpace.new(
-              "Not enough ephemeral disk space (#{disk_size_in_mb}MB) in cluster #{cluster.name}")
-        end
-
         datastore.allocate(disk_size_in_mb)
         datastore
       end

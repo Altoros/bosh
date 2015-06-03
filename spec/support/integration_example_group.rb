@@ -55,6 +55,12 @@ module IntegrationExampleGroup
     bosh_runner.run('login admin admin')
   end
 
+  def upload_cloud_config(options={})
+    cloud_config_hash = options.fetch(:cloud_config_hash, Bosh::Spec::Deployments.simple_cloud_config)
+    cloud_config_manifest = yaml_file('simple', cloud_config_hash)
+    bosh_runner.run("update cloud-config #{cloud_config_manifest.path}")
+  end
+
   def create_and_upload_test_release
     Dir.chdir(ClientSandbox.test_release_dir) do
       bosh_runner.run_in_current_dir('create release')
@@ -63,7 +69,11 @@ module IntegrationExampleGroup
   end
 
   def upload_stemcell
-    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')} --skip-if-exists")
+  end
+
+  def delete_stemcell
+    bosh_runner.run("delete stemcell ubuntu-stemcell 1")
   end
 
   def set_deployment(options)
@@ -81,10 +91,11 @@ module IntegrationExampleGroup
     bosh_runner.run("#{no_track ? '--no-track ' : ''}deploy#{redact_diff ? ' --redact-diff' : ''}", options)
   end
 
-  def deploy_simple(options={})
+  def deploy_from_scratch(options={})
     target_and_login
     create_and_upload_test_release
     upload_stemcell
+    upload_cloud_config(options) unless options[:legacy]
     deploy_simple_manifest(options)
   end
 

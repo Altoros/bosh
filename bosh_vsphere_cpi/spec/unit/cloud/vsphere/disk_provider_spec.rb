@@ -28,30 +28,31 @@ module VSphereCloud
     describe '#create' do
       before do
         allow(SecureRandom).to receive(:uuid).and_return('cid')
-        cluster = instance_double(VSphereCloud::Resources::Cluster)
-        allow(datacenter).to receive(:pick_persistent_datastore).with(24).and_return(datastore)
         allow(virtual_disk_manager).to receive(:create_virtual_disk)
       end
 
       let(:datastore) { instance_double('VSphereCloud::Resources::Datastore', name: 'fake-datastore-name') }
 
-      it 'creates disk using VirtualDiskManager' do
-        expect(client).to receive(:create_disk)
-                            .with(datacenter, datastore, 'disk-cid', 'fake-disk-path', 24)
-                            .and_return(disk)
-        expect(disk_provider.create(24)).to eq(disk)
+      context 'when cluster is nil' do
+        it 'creates disk using VirtualDiskManager' do
+          expect(datacenter).to receive(:pick_persistent_datastore).with(24).and_return(datastore)
+
+          expect(client).to receive(:create_disk)
+                              .with(datacenter, datastore, 'disk-cid', 'fake-disk-path', 24)
+                              .and_return(disk)
+          expect(disk_provider.create(24, nil)).to eq(disk)
+        end
       end
 
-      context 'when there are no datastores on host cluster that can fit disk size' do
-        before do
-          cluster = instance_double(VSphereCloud::Resources::Cluster)
-          allow(datacenter).to receive(:pick_persistent_datastore).with(24).and_return(nil)
-        end
+      context 'when cluster is provided' do
+        it 'creates disk in vm cluster' do
+          cluster = instance_double(VSphereCloud::Resources::Cluster, name: 'fake-cluster-name')
+          expect(resources).to receive(:pick_persistent_datastore_in_cluster).with('fake-cluster-name', 24).and_return(datastore)
 
-        it 'raises an error' do
-          expect {
-            disk_provider.create(24)
-          }.to raise_error Bosh::Clouds::NoDiskSpace
+          expect(client).to receive(:create_disk)
+                              .with(datacenter, datastore, 'disk-cid', 'fake-disk-path', 24)
+                              .and_return(disk)
+          expect(disk_provider.create(24, cluster)).to eq(disk)
         end
       end
     end
@@ -163,7 +164,11 @@ module VSphereCloud
         it 'raises DiskNotFound' do
           expect {
             disk_provider.find('disk-cid')
-          }.to raise_error Bosh::Clouds::DiskNotFound
+          }.to raise_error{ |error|
+              expect(error).to be_a(Bosh::Clouds::DiskNotFound)
+              expect(error.ok_to_retry).to eq(false)
+              expect(error.message).to  match(/Could not find disk with id 'disk-cid'/)
+            }
         end
       end
     end

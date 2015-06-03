@@ -1,5 +1,3 @@
-# Copyright (c) 2009-2012 VMware, Inc.
-
 module Bosh
   module Director
   end
@@ -66,7 +64,6 @@ require 'bosh/director/vm_metadata_updater'
 require 'bosh/director/vm_data'
 require 'bosh/director/vm_reuser'
 require 'bosh/director/deployment_plan'
-require 'bosh/director/deployment_plan/assembler'
 require 'bosh/director/errand'
 require 'bosh/director/duration'
 require 'bosh/director/hash_string_vals'
@@ -83,7 +80,6 @@ require 'bosh/director/job_queue'
 require 'bosh/director/lock'
 require 'bosh/director/nats_rpc'
 require 'bosh/director/network_reservation'
-require 'bosh/director/package_compiler'
 require 'bosh/director/problem_scanner/scanner'
 require 'bosh/director/problem_resolver'
 require 'bosh/director/resource_pool_updater'
@@ -152,5 +148,6 @@ require 'bosh/director/api/controllers/tasks_controller'
 require 'bosh/director/api/controllers/task_controller'
 require 'bosh/director/api/controllers/users_controller'
 require 'bosh/director/api/controllers/compiled_packages_controller'
+require 'bosh/director/api/controllers/cloud_configs_controller'
 require 'bosh/director/api/controllers/locks_controller'
 require 'bosh/director/api/route_configuration'

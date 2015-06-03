@@ -27,6 +27,7 @@ describe 'CentOS 7 OS image', os_image: true do
       bison
       bzip2-devel
       cmake
+      cronie-anacron
       curl
       dhclient
       e2fsprogs
@@ -42,8 +43,10 @@ describe 'CentOS 7 OS image', os_image: true do
       libxslt-devel
       lsof
       NetworkManager
+      net-tools
       nmap-ncat
       openssh-server
+      openssl
       openssl-devel
       parted
       psmisc
@@ -70,6 +73,10 @@ describe 'CentOS 7 OS image', os_image: true do
       describe package(pkg) do
         it { should be_installed }
       end
+    end
+
+    describe file('/usr/sbin/ifconfig') do
+      it { should be_executable }
     end
   end
 

@@ -23,36 +23,40 @@ module Bosh::Director
 
     def perform
       deployment_model = @deployment_manager.find_by_name(@deployment_name)
-      manifest = Psych.load(deployment_model.manifest)
-      deployment = DeploymentPlan::Planner.parse(manifest, {}, event_log, logger)
+      deployment_manifest_hash = Psych.load(deployment_model.manifest)
+      deployment_name = deployment_manifest_hash['name']
+      with_deployment_lock(deployment_name) do
+        cloud_config_model = deployment_model.cloud_config
 
-      job = deployment.job(@errand_name)
-      if job.nil?
-        raise JobNotFound, "Errand `#{@errand_name}' doesn't exist"
-      end
+        planner_factory = DeploymentPlan::PlannerFactory.create(event_log, logger)
+        deployment = planner_factory.planner(deployment_manifest_hash, cloud_config_model, {})
 
-      unless job.can_run_as_errand?
-        raise RunErrandError,
-              "Job `#{job.name}' is not an errand. To mark a job as an errand " +
-                "set its lifecycle to 'errand' in the deployment manifest."
-      end
-
-      if job.instances.empty?
-        raise InstanceNotFound, "Instance `#{@deployment_name}/#{@errand_name}/0' doesn't exist"
-      end
-
-      runner = Errand::Runner.new(job, result_file, @instance_manager, event_log, @logs_fetcher)
-
-      cancel_blk = lambda {
-        begin
-          task_checkpoint
-        rescue TaskCancelled => e
-          runner.cancel
-          raise e
+        job = deployment.job(@errand_name)
+        if job.nil?
+          raise JobNotFound, "Errand `#{@errand_name}' doesn't exist"
         end
-      }
 
-      with_deployment_lock(deployment) do
+        unless job.can_run_as_errand?
+          raise RunErrandError,
+                "Job `#{job.name}' is not an errand. To mark a job as an errand " +
+                  "set its lifecycle to 'errand' in the deployment manifest."
+        end
+
+        if job.instances.empty?
+          raise InstanceNotFound, "Instance `#{@deployment_name}/#{@errand_name}/0' doesn't exist"
+        end
+
+        runner = Errand::Runner.new(job, result_file, @instance_manager, event_log, @logs_fetcher)
+
+        cancel_blk = lambda {
+          begin
+            task_checkpoint
+          rescue TaskCancelled => e
+            runner.cancel
+            raise e
+          end
+        }
+
         with_updated_instances(deployment, job) do
           logger.info('Starting to run errand')
           runner.run(&cancel_blk)
@@ -67,15 +71,13 @@ module Bosh::Director
     private
 
     def with_updated_instances(deployment, job, &blk)
-      deployment_preparer = Errand::DeploymentPreparer.new(deployment, job, event_log, self)
-
       rp_updaters = [ResourcePoolUpdater.new(job.resource_pool)]
       resource_pools = DeploymentPlan::ResourcePools.new(event_log, rp_updaters)
 
       job_manager = Errand::JobManager.new(deployment, job, @blobstore, event_log, logger)
 
       begin
-        update_instances(deployment_preparer, resource_pools, job_manager)
+        update_instances(resource_pools, job_manager)
         blk.call
       ensure
         if @keep_alive
@@ -87,10 +89,9 @@ module Bosh::Director
       end
     end
 
-    def update_instances(deployment_preparer, resource_pools, job_manager)
+    def update_instances(resource_pools, job_manager)
       logger.info('Starting to prepare for deployment')
-      deployment_preparer.prepare_deployment
-      deployment_preparer.prepare_job
+      job_manager.prepare
 
       logger.info('Starting to update resource pool')
       resource_pools.update
