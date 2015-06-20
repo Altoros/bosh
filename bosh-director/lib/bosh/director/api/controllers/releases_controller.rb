@@ -9,7 +9,7 @@ module Bosh::Director
           rebase:         params['rebase'] == 'true',
           skip_if_exists: params['skip_if_exists'] == 'true',
         }
-        task = @release_manager.create_release_from_url(@user, payload['location'], options)
+        task = @release_manager.create_release_from_url(current_user, payload['location'], options)
         redirect "/tasks/#{task.id}"
       end
 
@@ -17,11 +17,11 @@ module Bosh::Director
         options = {
           rebase: params['rebase'] == 'true',
         }
-        task = @release_manager.create_release_from_file_path(@user, params[:nginx_upload_path], options)
+        task = @release_manager.create_release_from_file_path(current_user, params[:nginx_upload_path], options)
         redirect "/tasks/#{task.id}"
       end
 
-      get '/' do
+      get '/', scope: [:read] do
         releases = Models::Release.order_by(:name.asc).map do |release|
           release_versions = release.versions_dataset.order_by(:version.asc).map do |rv|
             {
@@ -42,7 +42,7 @@ module Bosh::Director
         json_encode(releases)
       end
 
-      get '/:name' do
+      get '/:name', scope: [:read] do
         name = params[:name].to_s.strip
         release = @release_manager.find_by_name(name)
 
@@ -81,7 +81,7 @@ module Bosh::Director
         options['force'] = true if params['force'] == 'true'
         options['version'] = params['version']
 
-        task = @release_manager.delete_release(@user, release, options)
+        task = @release_manager.delete_release(current_user, release, options)
         redirect "/tasks/#{task.id}"
       end
     end

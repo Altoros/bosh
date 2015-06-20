@@ -31,6 +31,7 @@ require 'bosh/monitor/yaml_helper'
 
 # Basic blocks
 require 'bosh/monitor/agent'
+require 'bosh/monitor/auth_provider'
 require 'bosh/monitor/config'
 require 'bosh/monitor/core_ext'
 require 'bosh/monitor/director'
@@ -74,3 +75,4 @@ require 'bosh/monitor/plugins/pagerduty'
 require 'bosh/monitor/plugins/resurrector'
 require 'bosh/monitor/plugins/tsdb'
 require 'bosh/monitor/plugins/varz'
+require 'bosh/monitor/plugins/consul_event_forwarder'

@@ -14,7 +14,7 @@ namespace :go do
 
     FileUtils.mkdir_p('tmp')
 
-    Bosh::Dev::GoInstaller.new('1.3.3', 'tmp').install
+    Bosh::Dev::GoInstaller.new('1.4.2', 'tmp').install
 
     ENV['GOROOT'] = File.absolute_path('tmp/go')
     ENV['PATH'] = "#{File.absolute_path('tmp/go/bin')}:#{ENV['PATH']}"
@@ -38,7 +38,7 @@ namespace :go do
 
   desc 'Install Vet'
   task :install_vet do
-    vet_repo = 'code.google.com/p/go.tools/cmd/vet'
+    vet_repo = 'golang.org/x/tools/cmd/vet'
     sh("go get #{vet_repo}")
     sh("go install #{vet_repo}")
   end

@@ -3,7 +3,7 @@ require 'spec_helper'
 module VSphereCloud
   describe Resources do
     subject(:resources) { VSphereCloud::Resources.new(datacenter, config) }
-    let(:clusters) { {} }
+    let(:clusters) { [] }
     let(:cluster_hash) { clusters.inject({}) { |h, cluster| h[cluster.name] = cluster; h } }
     let(:config) { instance_double('VSphereCloud::Config', client: client, logger: logger) }
     let(:client) { instance_double('VSphereCloud::Client') }
@@ -12,20 +12,23 @@ module VSphereCloud
 
     describe :pick_persistent_datastore_in_cluster do
       let(:cluster) { instance_double(VSphereCloud::Resources::Cluster, name: "bar") }
-      before { allow(datacenter).to receive(:clusters).and_return({ "bar" => cluster }) }
+      before { allow(datacenter).to receive(:clusters).and_return({ cluster.name => cluster, 'baz' => double('Cluster', name: 'baz') }) }
 
       it "should return the datastore when it was placed successfully" do
         datastore = double(:datastore)
         expect(datastore).to receive(:allocate).with(1024)
         expect(cluster).to receive(:pick_persistent).with(1024).and_return(datastore)
-        expect(resources.pick_persistent_datastore_in_cluster("bar", 1024)).
-          to eq(datastore)
+        expect(resources.pick_persistent_datastore_in_cluster("bar", 1024)).to eq(datastore)
       end
 
-      it "raises a Bosh::Clouds::NoDiskSpace when it can't find the cluster" do
+      it "raises a Bosh::Clouds::CloudError when it can't find the cluster" do
         expect{
           resources.pick_persistent_datastore_in_cluster("not a real cluster", 1024)
-        }.to raise_error(Bosh::Clouds::NoDiskSpace, /not a real cluster/)
+        }.to raise_error do |error|
+          expect(error).to be_an_instance_of(Bosh::Clouds::CloudError)
+          expect(error.message).to match(/not a real cluster/)
+          expect(error.message).to include('Found ["bar", "baz"]')
+        end
       end
     end
 
@@ -131,7 +134,7 @@ module VSphereCloud
       end
     end
 
-    describe 'pick_ephemeral_datastore' do
+    describe '#pick_ephemeral_datastore' do
       let(:cluster) { instance_double(VSphereCloud::Resources::Cluster, name: 'awesome cluster') }
       let(:datastore) { instance_double(VSphereCloud::Resources::Datastore, allocate: nil) }
 
@@ -144,15 +147,6 @@ module VSphereCloud
       it 'allocates disk size in datastore' do
         resources.pick_ephemeral_datastore(cluster, 1024)
         expect(datastore).to have_received(:allocate).with(1024)
-      end
-
-      context 'when cluster does not have datastore to satisfy disk size requirement' do
-        before { allow(cluster).to receive(:pick_ephemeral).with(1024).and_return(nil) }
-        it 'raises Bosh::Clouds::NoDiskSpace' do
-          expect {
-            resources.pick_ephemeral_datastore(cluster, 1024)
-          }.to raise_error Bosh::Clouds::NoDiskSpace
-        end
       end
     end
 

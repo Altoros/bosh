@@ -6,10 +6,13 @@ describe Bosh::Cli::Command::Deployment do
   let(:release_source) { Support::FileHelpers::ReleaseDirectory.new }
 
   before :each do
+    target = 'https://127.0.0.1:8080'
     cmd.add_option(:non_interactive, true)
-    cmd.add_option(:target, 'test')
+    cmd.add_option(:target, target)
     cmd.add_option(:username, 'user')
     cmd.add_option(:password, 'pass')
+
+    stub_request(:get, "#{target}/info").to_return(body: '{}')
   end
 
   after do
@@ -30,17 +33,18 @@ describe Bosh::Cli::Command::Deployment do
     cmd.delete('foo')
   end
 
-  it "lists deployments and doesn't fetch manifest on new director" do
-    expect(director).to receive(:list_deployments).
-      and_return([{ 'name' => 'foo', 'releases' => [], 'stemcells' => [] }])
-    expect(director).not_to receive(:get_deployment)
-
-    cmd.list
+  it 'gracefully handles attempts to delete a non-existent deployment' do
+    expect(director).to receive(:delete_deployment)
+                          .with('foo', force: false)
+                          .and_raise(Bosh::Cli::ResourceNotFound)
+    expect {
+      cmd.delete('foo')
+    }.to_not raise_error
   end
 
-  it 'lists deployments and fetches manifest on old director' do
-    expect(director).to receive(:list_deployments).and_return([{ 'name' => 'foo' }])
-    expect(director).to receive(:get_deployment).with('foo').and_return({})
+  it 'lists deployments' do
+    expect(director).to receive(:list_deployments).
+      and_return([{ 'name' => 'foo', 'releases' => [], 'stemcells' => [] }])
 
     cmd.list
   end

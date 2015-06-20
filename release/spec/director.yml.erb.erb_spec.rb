@@ -51,6 +51,7 @@ describe 'director.yml.erb.erb' do
           'auto_fix_stateful_nodes' => true,
           'max_vm_create_tries' => 5,
           'user_management' => { 'provider' => 'local' },
+          'trusted_certs' => "test_trusted_certs\nvalue",
         }
       }
     }
@@ -86,6 +87,10 @@ describe 'director.yml.erb.erb' do
       }
     end
 
+    it 'should contain the trusted_certs field' do
+      expect(parsed_yaml['trusted_certs']).to eq("test_trusted_certs\nvalue")
+    end
+
     context 'and when configured with a blobstore_path' do
       before do
         deployment_manifest_fragment['properties']['compiled_package_cache']['options'] = {
@@ -119,32 +124,32 @@ describe 'director.yml.erb.erb' do
       }
     end
 
-    context 'when vcenter.address begins with a bang and contains quotes' do
+    context 'when vcenter.address contains special characters' do
       before do
         deployment_manifest_fragment['properties']['vcenter']['address'] = "!vcenter.address''"
       end
 
-      it 'renders vcenter address correctly' do
+      it 'renders correctly' do
         expect(parsed_yaml['cloud']['properties']['vcenters'][0]['host']).to eq("!vcenter.address''")
       end
     end
 
-    context 'when vcenter.user begins with a bang and contains quotes' do
+    context 'when vcenter.user contains special characters' do
       before do
         deployment_manifest_fragment['properties']['vcenter']['user'] = "!vcenter.user''"
       end
 
-      it 'renders vcenter user correctly' do
+      it 'renders correctly' do
         expect(parsed_yaml['cloud']['properties']['vcenters'][0]['user']).to eq("!vcenter.user''")
       end
     end
 
-    context 'when vcenter.password begins with a bang and contains quotes' do
+    context 'when vcenter.password contains special characters' do
       before do
         deployment_manifest_fragment['properties']['vcenter']['password'] = "!vcenter.password''"
       end
 
-      it 'renders vcenter password correctly' do
+      it 'renders correctly' do
         expect(parsed_yaml['cloud']['properties']['vcenters'][0]['password']).to eq("!vcenter.password''")
       end
     end
@@ -235,18 +240,6 @@ describe 'director.yml.erb.erb' do
       }
     end
 
-    context 'when openstack connection options exist' do
-      before do
-        deployment_manifest_fragment['properties']['openstack']['connection_options'] = {
-          'option1' => 'true', 'option2' => 'false' }
-      end
-
-      it 'renders openstack connection options correctly' do
-        expect(parsed_yaml['cloud']['properties']['openstack']['connection_options']).to eq(
-          { 'option1' => 'true', 'option2' => 'false' })
-      end
-    end
-
     it 'renders openstack properties' do
       expect(parsed_yaml['cloud']['properties']['openstack']).to eq({
         'auth_url' => 'auth_url',
@@ -261,6 +254,58 @@ describe 'director.yml.erb.erb' do
           'type' => 'SSD'
         },
       })
+    end
+
+    context 'when openstack connection options exist' do
+      before do
+        deployment_manifest_fragment['properties']['openstack']['connection_options'] = {
+          'option1' => 'true', 'option2' => 'false' }
+      end
+
+      it 'renders openstack connection options correctly' do
+        expect(parsed_yaml['cloud']['properties']['openstack']['connection_options']).to eq(
+            { 'option1' => 'true', 'option2' => 'false' })
+      end
+    end
+
+    context 'when openstack.auth_url contains special characters' do
+      before do
+        deployment_manifest_fragment['properties']['openstack']['auth_url'] = "!openstack.auth_url''"
+      end
+
+      it 'renders correctly' do
+        expect(parsed_yaml['cloud']['properties']['openstack']['auth_url']).to eq("!openstack.auth_url''")
+      end
+    end
+
+    context 'when openstack.username contains special characters' do
+      before do
+        deployment_manifest_fragment['properties']['openstack']['username'] = "!openstack.username''"
+      end
+
+      it 'renders correctly' do
+        expect(parsed_yaml['cloud']['properties']['openstack']['username']).to eq("!openstack.username''")
+      end
+    end
+
+    context 'when openstack.api_key contains special characters' do
+      before do
+        deployment_manifest_fragment['properties']['openstack']['api_key'] = "!openstack.api_key''"
+      end
+
+      it 'renders correctly' do
+        expect(parsed_yaml['cloud']['properties']['openstack']['api_key']).to eq("!openstack.api_key''")
+      end
+    end
+
+    context 'when openstack.tenant contains special characters' do
+      before do
+        deployment_manifest_fragment['properties']['openstack']['tenant'] = "!openstack.tenant''"
+      end
+
+      it 'renders correctly' do
+        expect(parsed_yaml['cloud']['properties']['openstack']['tenant']).to eq("!openstack.tenant''")
+      end
     end
   end
 
@@ -291,7 +336,11 @@ describe 'director.yml.erb.erb' do
       }
       deployment_manifest_fragment['properties']['director']['user_management'] = {
         'provider' => 'uaa',
-        'options' => { 'a' => 'b' },
+        'options' => {
+          'url' => 'fake-url',
+          'symmetric_key' => 'fake-symmetric-key',
+          'public_key' => 'fake-public-key',
+        },
       }
     end
 
@@ -302,7 +351,25 @@ describe 'director.yml.erb.erb' do
     end
 
     it 'sets the user_management provider' do
-      expect(parsed_yaml['user_management']).to eq('provider' => 'uaa', 'options' => {'a' => 'b'})
+      expect(parsed_yaml['user_management']).to eq({
+        'provider' => 'uaa',
+        'options' => {
+          'url' => 'fake-url',
+          'symmetric_key' => 'fake-symmetric-key',
+          'public_key' => 'fake-public-key',
+        }
+      })
+    end
+
+    context 'when user does not provide UAA key' do
+      before do
+        deployment_manifest_fragment['properties']['director']['user_management']['options'].delete('symmetric_key')
+        deployment_manifest_fragment['properties']['director']['user_management']['options'].delete('public_key')
+      end
+
+      it 'raises' do
+        expect { parsed_yaml }.to raise_error('UAA provider requires symmetric or public key')
+      end
     end
 
     it 'renders aws properties' do

@@ -284,7 +284,7 @@ module Bosh::OpenStackCloud
           @logger.debug("Using boot volume: `#{boot_vol_id}'")
 
           server_params[:block_device_mapping] = [{
-                                                   :volume_size => "",
+                                                   :volume_size => boot_vol_size,
                                                    :volume_id => boot_vol_id,
                                                    :delete_on_termination => "1",
                                                    :device_name => "/dev/vda"
@@ -297,21 +297,25 @@ module Bosh::OpenStackCloud
         @logger.info("Creating new server `#{server.id}'...")
         begin
           wait_resource(server, :active, :state)
+
+          @logger.info("Configuring network for server `#{server.id}'...")
+          network_configurator.configure(@openstack, server)
         rescue Bosh::Clouds::CloudError => e
           @logger.warn("Failed to create server: #{e.message}")
-
-          with_openstack { server.destroy }
-
-          raise Bosh::Clouds::VMCreationFailed.new(true)
+          destroy_server(server)
+          raise Bosh::Clouds::VMCreationFailed.new(true), e.message
         end
 
-        @logger.info("Configuring network for server `#{server.id}'...")
-        network_configurator.configure(@openstack, server)
-
-        @logger.info("Updating settings for server `#{server.id}'...")
-        settings = initial_agent_settings(server_name, agent_id, network_spec, environment,
-                                          flavor_has_ephemeral_disk?(flavor))
-        @registry.update_settings(server.name, settings)
+        begin
+          @logger.info("Updating settings for server `#{server.id}'...")
+          settings = initial_agent_settings(server_name, agent_id, network_spec, environment,
+                                            flavor_has_ephemeral_disk?(flavor))
+          @registry.update_settings(server.name, settings)
+        rescue Bosh::Clouds::CloudError => e
+          @logger.warn("Failed to register server: #{e.message}")
+          destroy_server(server)
+          raise Bosh::Clouds::VMCreationFailed.new(false), e.message
+        end
 
         server.id.to_s
       end
@@ -547,13 +551,14 @@ module Bosh::OpenStackCloud
     # @raise [Bosh::Clouds::CloudError] if volume is not found
     def snapshot_disk(disk_id, metadata)
       with_thread_name("snapshot_disk(#{disk_id})") do
+        metadata = Hash[metadata.map{|key,value| [key.to_s, value] }]
         volume = with_openstack { @openstack.volumes.get(disk_id) }
         cloud_error("Volume `#{disk_id}' not found") unless volume
 
         devices = []
         volume.attachments.each { |attachment| devices << attachment['device'] unless attachment.empty? }
 
-        description = [:deployment, :job, :index].collect { |key| metadata[key] }
+        description = ['deployment', 'job', 'index'].collect { |key| metadata[key] }
         description << devices.first.split('/').last unless devices.empty?
         snapshot_params = {
           :name => "snapshot-#{generate_unique_name}",
@@ -972,6 +977,17 @@ module Bosh::OpenStackCloud
         end
       end
       options
+    end
+
+    # Destroy server and wait until the server is really terminated/deleted
+    def destroy_server(server)
+      with_openstack { server.destroy }
+
+      begin
+        wait_resource(server, [:terminated, :deleted], :state, true)
+      rescue Bosh::Clouds::CloudError => delete_server_error
+        @logger.warn("Failed to destroy server: #{delete_server_error.inspect}\n#{delete_server_error.backtrace.join('\n')}")
+      end
     end
   end
 end

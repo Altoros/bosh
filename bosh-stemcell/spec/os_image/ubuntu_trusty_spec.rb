@@ -119,6 +119,7 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
       dnsutils
       tcpdump
       iputils-arping
+      anacron
       curl
       wget
       libcurl3
@@ -138,6 +139,10 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
       iptables
       sysstat
       rsync
+      rsyslog
+      rsyslog-relp
+      rsyslog-gnutls
+      rsyslog-mmjsonparse
       openssh-server
       traceroute
       libncurses5-dev
@@ -248,14 +253,21 @@ describe 'Ubuntu 14.04 OS image', os_image: true do
     end
   end
 
-  context 'installed by rsyslog_build' do
-    describe file('/etc/rsyslog.d/enable-kernel-logging.conf') do
-      it { should be_file }
-      it { should contain('ModLoad imklog') }
+  context 'configured by cron_config' do
+    describe file '/etc/cron.daily/man-db' do
+      it { should_not be_file }
     end
 
-    describe command('rsyslogd -v') do
-      it { should return_stdout /7\.4\.6/ }
+    describe file '/etc/cron.weekly/man-db' do
+      it { should_not be_file }
+    end
+
+    describe file '/etc/apt/apt.conf.d/02periodic' do
+      it { should contain <<EOF }
+APT::Periodic {
+  Enable "0";
+}
+EOF
     end
   end
 end

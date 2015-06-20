@@ -18,6 +18,10 @@ describe Bosh::Cli::Command::Base do
     cmd
   end
 
+  before { stub_request(:get, "#{target}/info").to_return(body: '{}') }
+
+  let(:target) { 'https://127.0.0.1:8080' }
+
   it 'can access configuration and respects options' do
     add_config('target' => 'localhost:8080', 'target_name' => 'microbosh', 'deployment' => 'test')
 
@@ -49,6 +53,8 @@ describe Bosh::Cli::Command::Base do
   end
 
   it 'has logged_in? helper' do
+    add_config('target' => target, 'deployment' => 'test')
+
     cmd = make
     expect(cmd.logged_in?).to be(false)
     cmd.add_option(:username, 'foo')
@@ -112,24 +118,69 @@ describe Bosh::Cli::Command::Base do
   end
 
   describe 'credentials' do
-    context 'when config contains UAA token' do
-      let(:cmd) do
-        add_config(
-          'target' => 'localhost:8080',
-          'auth' => {
-            'https://localhost:8080' => {
-              'token' => 'bearer config-token',
-            }
-          })
-        make
+    include Support::UaaHelpers
+
+    context 'when configured in UAA mode' do
+      before do
+        director_status = {'user_authentication' => {
+          'type' => 'uaa',
+          'options' => {'url' => 'https://127.0.0.1:8080/uaa'}
+        }}
+        stub_request(:get, 'https://127.0.0.1:8080/info').to_return(body: JSON.dump(director_status))
       end
 
-      it 'returns UAA credentials' do
-        expect(cmd.credentials.authorization_header).to eq('bearer config-token')
+      context 'when client credentials are provided in environment' do
+        let(:cmd) do
+          add_config('target' => 'localhost:8080')
+          make
+        end
+        let(:env) do
+          {
+            'BOSH_CLIENT' => 'fake-id',
+            'BOSH_CLIENT_SECRET' => 'secret'
+          }
+        end
+        before do
+          stub_const('ENV', env)
+          allow(CF::UAA::TokenIssuer).to receive(:new).and_return(token_issuer)
+        end
+
+        let(:token_issuer) { instance_double(CF::UAA::TokenIssuer) }
+        let(:token) { uaa_token_info('fake-id', expiration_time, nil) }
+        let(:expiration_time) { Time.now.to_i + expiration_deadline + 10 }
+        let(:expiration_deadline) { Bosh::Cli::Client::Uaa::AccessInfo::EXPIRATION_DEADLINE_IN_SECONDS }
+
+        it 'reuses the same token for client credentials if it is valid' do
+          expect(token_issuer).to receive(:client_credentials_grant).once.and_return(token)
+
+          expect(cmd.credentials.authorization_header).to eq(token.auth_header)
+          expect(cmd.credentials.authorization_header).to eq(token.auth_header)
+        end
+      end
+
+      context 'when config contains UAA token' do
+        let(:cmd) do
+          add_config(
+            'target' => 'localhost:8080',
+            'auth' => {
+              'https://localhost:8080' => {
+                'access_token' => token_info.auth_header,
+              }
+            })
+          make
+        end
+
+        let(:token_info) do
+          uaa_token_info('fake-id', Time.now.to_i + 3600, 'refresh-token')
+        end
+
+        it 'returns UAA credentials' do
+          expect(cmd.credentials.authorization_header).to eq(token_info.auth_header)
+        end
       end
     end
 
-    context 'when config does not contain UAA token' do
+    context 'when configured in basic authentication mode' do
       let(:cmd) do
         add_config(
           'target' => 'localhost:8080',
@@ -183,9 +234,21 @@ describe Bosh::Cli::Command::Base do
       end
 
       context 'when credentials are not provided in config' do
-        let(:cmd) { make }
+        let(:cmd) do
+          add_config('target' => 'localhost:8080')
+          make
+        end
+
         it 'returns nil' do
           expect(cmd.credentials).to be_nil
+        end
+      end
+
+      context 'when target is not set' do
+        let(:cmd) { make }
+
+        it 'fails' do
+          expect { cmd.credentials }.to raise_error
         end
       end
     end

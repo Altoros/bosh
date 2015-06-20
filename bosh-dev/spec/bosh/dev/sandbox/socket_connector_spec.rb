@@ -3,7 +3,7 @@ require 'bosh/dev/sandbox/socket_connector'
 
 module Bosh::Dev::Sandbox
   describe SocketConnector do
-    let(:socket_connector) { SocketConnector.new('fake-name', 'fake-host', 'fake-port', logger) }
+    let(:socket_connector) { SocketConnector.new('fake-name', 'fake-host', 'fake-port', 'fake-log-location', logger) }
 
     describe '#try_to_connect' do
       context 'when connecting fails after some time' do
@@ -21,8 +21,8 @@ module Bosh::Dev::Sandbox
         end
 
         it 'defaults to 40 attempts before raising' do
-          expect(Timeout).to receive(:timeout).exactly(40).times
-          expect(socket_connector).to receive(:sleep).exactly(39).times
+          expect(Timeout).to receive(:timeout).exactly(80).times
+          expect(socket_connector).to receive(:sleep).exactly(79).times
 
           expect {
             socket_connector.try_to_connect

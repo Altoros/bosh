@@ -6,7 +6,7 @@ describe 'cli: property management', type: :integration do
   it 'can get/set/unset deployment properties' do
     manifest = Bosh::Spec::Deployments.simple_manifest
     manifest['jobs'] = []
-    deploy_simple(manifest_hash: manifest)
+    deploy_from_scratch(manifest_hash: manifest)
 
     expect(bosh_runner.run('set property foo bar')).to match /Property `foo' set to `bar'/
     expect(bosh_runner.run('get property foo')).to match /Property `foo' value is `bar'/

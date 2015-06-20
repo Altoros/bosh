@@ -27,7 +27,6 @@ module Bosh::Director
         @vm_model, @agent_client = vm_creator.create(new_disk_cid)
 
         begin
-          # Could raise Bosh::Clouds::NoDiskSpace because some CPIs might lazily create disks
           disk_attacher = DiskAttacher.new(@instance, @vm_model, @agent_client, @cloud, @logger)
           disk_attacher.attach
           break
@@ -86,7 +85,6 @@ module Bosh::Director
 
       def create(new_disk_id)
         @logger.info('Creating VM')
-
         vm_model = new_vm_model(new_disk_id)
 
         begin
@@ -94,6 +92,8 @@ module Bosh::Director
 
           agent_client = AgentClient.with_defaults(vm_model.agent_id)
           agent_client.wait_until_ready
+          agent_client.update_settings(Bosh::Director::Config.trusted_certs)
+          vm_model.update(:trusted_certs_sha1 => Digest::SHA1.hexdigest(Bosh::Director::Config.trusted_certs))
         rescue Exception => e
           @logger.error("Failed to create/contact VM #{vm_model.cid}: #{e.inspect}")
           VmDeleter.new(@instance, vm_model, @cloud, @logger).delete

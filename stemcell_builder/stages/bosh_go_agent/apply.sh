@@ -13,9 +13,11 @@ mkdir -p $chroot/var/vcap/monit/svlog
 # Set up agent and monit with runit
 run_in_bosh_chroot $chroot "
 chmod +x /etc/sv/agent/run /etc/sv/agent/log/run
+rm -f /etc/service/agent
 ln -s /etc/sv/agent /etc/service/agent
 
 chmod +x /etc/sv/monit/run /etc/sv/monit/log/run
+rm -f /etc/service/monit
 ln -s /etc/sv/monit /etc/service/monit
 "
 
@@ -27,13 +29,13 @@ agent_dir=$assets_dir/go/src/github.com/cloudfoundry/bosh-agent
 cd $agent_dir
 bin/build
 mv out/bosh-agent $chroot/var/vcap/bosh/bin/
+cp $agent_dir/mbus/agent.{cert,key} $chroot/var/vcap/bosh/
+cp Tools/bosh-agent-rc $chroot/var/vcap/bosh/bin/
 
 if [ `uname -m` == "ppc64le" ]; then
    # assume that gccgo is installed under /usr/local/gccgp
    cp -rvH /usr/local/gccgo $chroot/var/vcap/bosh/
 fi
-
-cp Tools/bosh-agent-rc $chroot/var/vcap/bosh/bin/
 
 cd $assets_dir/go/src/github.com/cloudfoundry/bosh-davcli
 bin/build
@@ -42,8 +44,6 @@ mv out/dav-cli $chroot/var/vcap/bosh/bin/bosh-blobstore-dav
 chmod +x $chroot/var/vcap/bosh/bin/bosh-agent
 chmod +x $chroot/var/vcap/bosh/bin/bosh-agent-rc
 chmod +x $chroot/var/vcap/bosh/bin/bosh-blobstore-dav
-
-cp $agent_dir/mbus/agent.{cert,key} $chroot/var/vcap/bosh/
 
 # Setup additional permissions
 run_in_chroot $chroot "

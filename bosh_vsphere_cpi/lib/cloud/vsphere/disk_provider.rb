@@ -12,19 +12,23 @@ module VSphereCloud
       @logger = logger
     end
 
-    def create(disk_size_in_mb)
-      datastore = find_datastore(disk_size_in_mb)
+    def create(disk_size_in_mb, cluster)
+      if cluster
+        datastore = @resources.pick_persistent_datastore_in_cluster(cluster.name, disk_size_in_mb)
+      else
+        datastore = @datacenter.pick_persistent_datastore(disk_size_in_mb)
+      end
       disk_cid = "disk-#{SecureRandom.uuid}"
       @logger.debug("Creating disk '#{disk_cid}' in datastore '#{datastore.name}'")
 
       @client.create_disk(@datacenter, datastore, disk_cid, @disk_path, disk_size_in_mb)
     end
 
-    def find_and_move(disk_cid, cluster, datacenter_name, accessible_datastores)
+    def find_and_move(disk_cid, cluster, datacenter, accessible_datastores)
       disk = find(disk_cid)
       return disk if accessible_datastores.include?(disk.datastore.name)
 
-      destination_datastore =  @resources.pick_persistent_datastore_in_cluster(cluster, disk.size_in_mb)
+      destination_datastore = @resources.pick_persistent_datastore_in_cluster(cluster.name, disk.size_in_mb)
 
       unless accessible_datastores.include?(destination_datastore.name)
         raise "Datastore '#{destination_datastore.name}' is not accessible to cluster '#{cluster.name}'"
@@ -32,35 +36,26 @@ module VSphereCloud
 
       destination_path = path(destination_datastore, disk_cid)
       @logger.info("Moving #{disk.path} to #{destination_path}")
-      @client.move_disk(datacenter_name, disk.path, datacenter_name, destination_path) #TODO: return the new disk
+      @client.move_disk(datacenter, disk.path, datacenter, destination_path)
       @logger.info('Moved disk successfully')
       Resources::Disk.new(disk_cid, disk.size_in_mb, destination_datastore, destination_path)
     end
 
     def find(disk_cid)
-      @datacenter.persistent_datastores.each do |_, datastore|
+      persistent_datastores = @datacenter.persistent_datastores
+      @logger.debug("Looking for disk #{disk_cid} in datastores: #{persistent_datastores}")
+      persistent_datastores.each do |_, datastore|
         disk = @client.find_disk(disk_cid, datastore, @disk_path)
         return disk unless disk.nil?
       end
 
-      raise Bosh::Clouds::DiskNotFound, "Could not find disk with id #{disk_cid}"
+      raise Bosh::Clouds::DiskNotFound.new(false), "Could not find disk with id '#{disk_cid}'"
     end
 
     private
 
     def path(datastore, disk_cid)
       "[#{datastore.name}] #{@disk_path}/#{disk_cid}.vmdk"
-    end
-
-    def find_datastore(disk_size_in_mb)
-      datastore = @datacenter.pick_persistent_datastore(disk_size_in_mb)
-
-      if datastore.nil?
-        raise Bosh::Clouds::NoDiskSpace.new(true),
-          "Not enough persistent space #{disk_size_in_mb}"
-      end
-
-      datastore
     end
   end
 end

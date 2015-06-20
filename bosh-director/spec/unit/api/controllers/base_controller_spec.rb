@@ -5,20 +5,6 @@ module Bosh
   module Director
     module Api
       module Controllers
-        class TestIdentityProvider
-          attr_reader :request_env
-
-          def initialize(authenticates)
-            @authenticates = authenticates
-          end
-
-          def corroborate_user(request_env)
-            @request_env = request_env
-            raise AuthenticationError unless @authenticates
-            "luke"
-          end
-        end
-
         describe BaseController do
           include Rack::Test::Methods
 
@@ -27,7 +13,7 @@ module Bosh
 
           let(:requires_authentication) { nil }
           let(:authenticates_successfully) { false }
-          let(:identity_provider) { TestIdentityProvider.new(authenticates_successfully) }
+          let(:identity_provider) { Support::TestIdentityProvider.new(authenticates_successfully) }
 
           let(:temp_dir) { Dir.mktmpdir }
           let(:test_config) { base_config }
@@ -57,11 +43,6 @@ module Bosh
             expect(last_response.status).to eq(401)
           end
 
-          it 'requires authentication even for invalid routes' do
-            get '/invalid_route'
-            expect(last_response.status).to eq(401)
-          end
-
           context 'when authorizaion is provided' do
             before { header('Authorization', 'Value') }
 
@@ -71,13 +52,22 @@ module Bosh
               expect(identity_provider.request_env['HTTP_X_TEST_HEADER']).to eq('Value')
             end
 
+            it 'passes the access to identity provider' do
+              header('X-Test-Header', 'Value')
+              get '/test_route'
+              expect(identity_provider.roles).to eq([:write])
+
+              get '/read'
+              expect(identity_provider.roles).to eq([:read])
+            end
+
             context 'when authenticating successfully' do
               let(:authenticates_successfully) { true }
 
               it 'succeeds' do
                 get '/test_route'
                 expect(last_response.status).to eq(200)
-                expect(last_response.body).to eq('Success with: luke')
+                expect(last_response.body).to eq('Success with: fake-user')
               end
             end
           end
@@ -113,7 +103,7 @@ module Bosh
                 it 'returns controller response' do
                   get '/test_route'
                   expect(last_response.status).to eq(200)
-                  expect(last_response.body).to eq('Success with: luke')
+                  expect(last_response.body).to eq('Success with: fake-user')
                 end
               end
             end

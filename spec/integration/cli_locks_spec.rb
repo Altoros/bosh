@@ -7,11 +7,11 @@ describe 'cli: locks', type: :integration do
     before do
       manifest_hash = Bosh::Spec::Deployments.simple_manifest
       manifest_hash['update']['canary_watch_time'] = 6000
-      deploy_simple(manifest_hash: manifest_hash, no_track: true)
+      deploy_from_scratch(manifest_hash: manifest_hash, no_track: true)
     end
 
     it 'lists a deployment lock' do
-      output = bosh_runner.run_until_succeeds('locks')
+      output = bosh_runner.run_until_succeeds('locks', number_of_retries: 30)
       expect(output).to match(/\s*\|\s*deployment\s*\|\s*simple\s*\|/)
     end
   end

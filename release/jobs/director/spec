@@ -91,13 +91,16 @@ properties:
     description: Max retries when creating VMs
     default: 5
 
-  #Director User Management
+  # Director User Management
   director.user_management.provider:
-    description: "User management implementation (local|uaa)"
+    description: 'User management implementation (local|uaa)'
     default: local
-  director.user_management.options:
-    description: "Options for the user management provider. For 'uaa', 'key' is the secret shared with UAA for token validation."
-    default: ~
+  director.user_management.options.url:
+    description: 'User management provider URL'
+  director.user_management.options.symmetric_key:
+    description: 'Symmetric key to verify Uaa token'
+  director.user_management.options.public_key:
+    description: 'Public key to verify Uaa token when token is encoded with asymmetric encryption'
 
   redis.address:
     description: Address of the redis server
@@ -141,8 +144,8 @@ properties:
   director.db.connection_options:
     description: Additional options for the database
     default:
-      max_connections: 32
-      pool_timeout: 10
+      max_connections: 32  #Maximum size of the connection pool
+      pool_timeout: 10     #Number of seconds to wait if a connection cannot be acquired before  raising an error
 
   # DNS
   dns.address:
@@ -169,8 +172,8 @@ properties:
   dns.db.connection_options:
     description: Additional options for the powerdns database
     default:
-      max_connections: 32
-      pool_timeout: 10
+      max_connections: 32  #Maximum size of the connection pool
+      pool_timeout: 10     #Number of seconds to wait if a connection cannot be acquired before  raising an error
 
   # Blobstore
   blobstore.provider:
@@ -290,6 +293,10 @@ properties:
       - 0.pool.ntp.org
       - 1.pool.ntp.org
 
+  director.trusted_certs:
+    description: Cerfiticates that VMs created by this director should trust in addition to those packaged with the stemcell (PEM encoded; zero or more certs allowed)
+    default: ''
+
   # Cpi
   director.cpi_job:
     description: Name of cpi job (null to use bundled cpi gems)
@@ -404,22 +411,22 @@ properties:
   vcenter.datacenters:
     description: Datacenters in vCenter to use (value is an array of Hashes representing datacenters and clusters, See director.yml.erb.erb)
   vcd.url:
-    description: TODO
+    description: The endpoint of the target vCloud Director
   vcd.user:
-    description: TODO
+    description: The user name of the target vCloud Director
   vcd.password:
-    description: TODO
+    description: The password of the target vCloud Director
   vcd.entities.organization:
-    description: TODO
+    description: The organization name
   vcd.entities.virtual_datacenter:
-    description: TODO
+    description: The virtual data center name in vCloud Director
   vcd.entities.vapp_catalog:
-    description: TODO
+    description: The name of the calalog for vapp template
   vcd.entities.media_catalog:
-    description: TODO
+    description: The name of the calalog for media files
   vcd.entities.vm_metadata_key:
-    description: TODO
+    description: The key name of VM metadata
     default: vcd-cf
   vcd.entities.description:
-    description: TODO
+    description: Text associated with the VMs
     default: vcd-cf

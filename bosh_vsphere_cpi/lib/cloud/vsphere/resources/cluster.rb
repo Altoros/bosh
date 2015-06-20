@@ -81,8 +81,8 @@ module VSphereCloud
       # Picks the best datastore for the specified persistent disk.
       #
       # @param [Integer] size persistent disk size.
-      # @return [Datastore, nil] best datastore if available for the requested
-      #   size.
+      # @return [Datastore] the best datastore for the requested size.
+      # @raise [Bosh::Clouds::NoDiskSpace] if no datastore available for the requested size
       def pick_persistent(size)
         pick_store(:persistent, size)
       end
@@ -90,8 +90,8 @@ module VSphereCloud
       # Picks the best datastore for the specified ephemeral disk.
       #
       # @param [Integer] size ephemeral disk size.
-      # @return [Datastore, nil] best datastore if available for the requested
-      #   size.
+      # @return [Datastore] the best datastore for the requested size.
+      # @raise [Bosh::Clouds::NoDiskSpace] if no datastore available for the requested size
       def pick_ephemeral(size)
         pick_store(:ephemeral, size)
       end
@@ -124,58 +124,20 @@ module VSphereCloud
         matching_datastores.inject({}) { |h, datastore| h[datastore.name] = datastore; h }
       end
 
-      # Picks the best datastore for the specified disk size and type.
-      #
-      # First the exclusive datastore pool is used. If it's empty or doesn't
-      # have enough capacity then the shared pool will be used.
-      #
-      # @param [Integer] size disk size.
-      # @param [Symbol] type disk type.
-      # @return [Datastore, nil] best datastore if available for the requested
-      #   size.
-
       def pick_store(type, size)
-        datastores = type == :ephemeral ? ephemeral_datastores : persistent_datastores
-        datastores_and_free_space = datastores.each_value.map do |datastore|
-          [datastore, datastore.free_space]
+        datastores = (type == :ephemeral ? ephemeral_datastores : persistent_datastores).values
+        available_datastores = datastores.reject { |datastore| datastore.free_space - size < DISK_HEADROOM }
+
+        @logger.debug("Looking for a #{type} datastore in #{self.name} with #{size}MB free space.")
+        @logger.debug("All datastores: #{datastores.map(&:debug_info)}")
+        @logger.debug("Datastores with enough space: #{available_datastores.map(&:debug_info)}")
+
+        selected_datastore = Util.weighted_random(available_datastores.map { |datastore| [datastore, datastore.free_space] })
+
+        if selected_datastore.nil?
+          raise Bosh::Clouds::NoDiskSpace.new(true), "Couldn't find a #{type} datastore with #{size}MB of free space accessible from cluster '#{self.name}'. Found:\n #{datastores.map(&:debug_info).join("\n ")}\n"
         end
-
-        datastores_and_free_space_with_enough_space = datastores_and_free_space.reject do |datastore, free_space|
-          free_space - size < DISK_HEADROOM
-        end
-
-        log_datastore_selection(type, datastores_and_free_space, datastores_and_free_space_with_enough_space, size)
-
-        if datastores_and_free_space_with_enough_space.empty?
-          raise_no_disk_space_found(type, datastores_and_free_space, size)
-        end
-
-        Util.weighted_random(datastores_and_free_space_with_enough_space)
-      end
-
-      def raise_no_disk_space_found(type, datastores_and_free_space, size)
-        datastore_debug_info = datastores_and_free_space.map do |datastore, free_space|
-          "#{datastore.name} (#{free_space}MB free of #{datastore.total_space}MB capacity)"
-        end
-        raise Bosh::Clouds::NoDiskSpace.new(true), <<-MESSAGE
-Couldn't find a #{type} datastore with #{size}MB of free space in #{name}. Found:
- #{datastore_debug_info.join("\n ")}
-        MESSAGE
-      end
-
-      def log_datastore_selection(type, datastores_and_free_space, datastores_and_free_space_with_enough_space, size)
-        @logger.debug("Looking for a #{type} datastore in #{name} with #{size}MB free space in:")
-        datastores_and_free_space.each do |datastore, _|
-          @logger.debug(" #{debug_info_for_datastore(datastore)}")
-        end
-        acceptable_datastores_message = datastores_and_free_space_with_enough_space.map do |datastore, _|
-          datastore.name
-        end.join(", ")
-        @logger.debug("Picking a random datastore (weighted by free space) from: #{acceptable_datastores_message}")
-      end
-
-      def debug_info_for_datastore(datastore)
-        "#{datastore.name} (#{datastore.free_space}MB free of #{datastore.total_space}MB capacity)"
+        selected_datastore
       end
 
       def synced_free_memory

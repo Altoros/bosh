@@ -10,6 +10,7 @@ module Bosh::Dev
     before do
       Dir.chdir(remote_dir) do
         `git init`
+        config_git_user
         File.write('README.md', 'hiya!')
         `git add .`
         `git commit -m 'Initial commit'`
@@ -27,13 +28,36 @@ module Bosh::Dev
     end
 
     context 'when there are changes' do
-      before { Dir.chdir(local_dir) { File.write('README.md', 'new contents') } }
+      before do
+        Dir.chdir(local_dir) do
+          config_git_user
+          File.write('README.md', 'new contents')
+        end
+      end
 
       it 'commits and pushes the changes' do
         original_commit = get_head_commit(remote_dir)
         git_repo_updater.update_directory(local_dir, 'my commit message')
         expect(get_head_commit(remote_dir)).not_to eq(original_commit)
         expect(get_head_commit_message(remote_dir)).to eq('my commit message')
+      end
+
+      context 'when pushing changes fails because of non-fast-forward push' do
+        before do
+          Dir.chdir(remote_dir) do
+            config_git_user
+            `git checkout master`
+            File.write('README.md', 'remote changes')
+            `git commit -am 'Remote commit'`
+            `git checkout -b another-branch`
+          end
+        end
+
+        it 'raises PushNonFastForwardError' do
+          expect {
+            git_repo_updater.update_directory(local_dir, 'my commit message')
+          }.to raise_error GitRepoUpdater::PushRejectedError
+        end
       end
     end
 

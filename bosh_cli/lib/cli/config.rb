@@ -117,8 +117,14 @@ module Bosh::Cli
 
     # @param [String] target Target director url
     # @return [String] Token associated with target
-    def token(target)
-      credentials_for(target)["token"]
+    def access_token(target)
+      credentials_for(target)["access_token"]
+    end
+
+    # @param [String] target Target director url
+    # @return [String] Refresh token associated with target
+    def refresh_token(target)
+      credentials_for(target)["refresh_token"]
     end
 
     # Deployment used to be a string that was only stored for your
@@ -199,6 +205,25 @@ module Bosh::Cli
 
     def target_uuid=(value)
       write_global(:target_uuid, value)
+    end
+
+    def ca_cert(for_target=nil)
+      if for_target
+        return @config_file.fetch('ca_cert', {}).fetch(for_target, nil)
+      end
+
+      return nil if target.nil?
+
+      @config_file.fetch('ca_cert', {}).fetch(target, nil)
+    end
+
+
+    def save_ca_cert_path(cert_path)
+      expanded_path = cert_path ? File.expand_path(cert_path) : nil
+      @config_file['ca_cert'] ||= {}
+      @config_file['ca_cert'][target] = expanded_path
+
+      expanded_path
     end
 
     # Read the max parallel downloads configuration.

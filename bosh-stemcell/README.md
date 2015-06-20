@@ -21,10 +21,23 @@ Note: Use US East (Northern Virginia) region when using AWS in following steps. 
 
 From a fresh copy of the bosh repo:
 
+If you use AWS EC2-Classic environment, run:
+
     export BOSH_AWS_ACCESS_KEY_ID=YOUR-AWS-ACCESS-KEY
     export BOSH_AWS_SECRET_ACCESS_KEY=YOUR-AWS-SECRET-KEY
     cd bosh-stemcell
     vagrant up remote --provider=aws
+
+If you use AWS VPC environment, run:
+
+    export BOSH_AWS_ACCESS_KEY_ID=YOUR-AWS-ACCESS-KEY
+    export BOSH_AWS_SECRET_ACCESS_KEY=YOUR-AWS-SECRET-KEY
+    export BOSH_AWS_SECURITY_GROUP=YOUR-AWS-SECURITY-GROUP-ID
+    export BOSH_AWS_SUBNET_ID=YOUR-AWS-SUBNET-ID
+    cd bosh-stemcell
+    vagrant up remote --provider=aws
+
+(Note: BOSH\_AWS\_SECURITY\_GROUP should be security group id, instead of name "bosh-stemcell")
 
 ## Updating source code on stemcell building VM
 
@@ -60,7 +73,7 @@ If you have changes that will require new OS image you need to build one. A stem
 The arguments to `stemcell:build_os_image` are:
 
 1. *`operating_system_name`* identifies which type of OS to fetch. Determines which package repository and packaging tool will be used to download and assemble the files. Must match a value recognized by the  [OperatingSystem](lib/bosh/stemcell/operatingsystem.rb) module. Currently, `ubuntu` `centos` and `rhel` are recognized.
-2. *`operating_system_version`* an identifier that the system may use to decide which release of the OS to download. Acceptable values depend on the operating system. For `ubuntu`, use `trusty`. For `centos`, use `6` or `7`. For `rhel`, use `7`.
+2. *`operating_system_version`* an identifier that the system may use to decide which release of the OS to download. Acceptable values depend on the operating system. For `ubuntu`, use `trusty`. For `centos` or `rhel`, use `7`.
 3. *`os_image_path`* the path to write the finished OS image tarball to. If a file exists at this path already, it will be overwritten without warning.
 
 ### Special requirements for building a RHEL OS image
@@ -95,7 +108,7 @@ The final two arguments are the S3 bucket and key for the OS image to use, which
 
     vagrant ssh -c '
       cd /bosh
-      CANDIDATE_BUILD_NUMBER=<current_build> http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[vsphere,esxi,centos,nil,go,bosh-os-images,bosh-centos-6_6-os-image.tgz]
+      CANDIDATE_BUILD_NUMBER=<current_build> http_proxy=http://localhost:3142/ bundle exec rake stemcell:build[vsphere,esxi,centos,nil,go,bosh-os-images,bosh-centos-7-os-image.tgz]
     ' remote
 
 
@@ -110,7 +123,7 @@ The final two arguments are the S3 bucket and key for the OS image to use, which
 Public OS images can be obtained here:
 
 * latest Ubuntu - https://s3.amazonaws.com/bosh-os-images/bosh-ubuntu-trusty-os-image.tgz
-* latest Centos - https://s3.amazonaws.com/bosh-os-images/bosh-centos-6_6-os-image.tgz
+* latest Centos - https://s3.amazonaws.com/bosh-os-images/bosh-centos-7-os-image.tgz
 
 ### Building light stemcell
 
@@ -140,5 +153,5 @@ If you find yourself debugging any of the above processes, here is what you need
    For example:
 
    ```
-   bundle exec rake stemcell:build_os_image[ubuntu,trusty,/tmp/ubuntu_base_image.tgz] resume_from=rsyslog_build
+   bundle exec rake stemcell:build_os_image[ubuntu,trusty,/tmp/ubuntu_base_image.tgz] resume_from=rsyslog_config
    ```

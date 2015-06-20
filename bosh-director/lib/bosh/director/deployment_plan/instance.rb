@@ -335,7 +335,9 @@ module Bosh::Director
       def persistent_disk_changed?
         new_disk_size = @job.persistent_disk_pool ? @job.persistent_disk_pool.disk_size : 0
         new_disk_cloud_properties = @job.persistent_disk_pool ? @job.persistent_disk_pool.cloud_properties : {}
-        new_disk_size != disk_size || new_disk_cloud_properties != disk_cloud_properties
+        return true if new_disk_size != disk_size
+
+        new_disk_size != 0 && new_disk_cloud_properties != disk_cloud_properties
       end
 
       ##
@@ -367,6 +369,16 @@ module Bosh::Director
       end
 
       ##
+      # Checks if the target VM already has the same set of trusted SSL certificates
+      # as the director currently wants to install on all managed VMs. This will
+      # differ for VMs that existed before the director's configuration changed.
+      #
+      # @return [Boolean] true if the VM needs to be sent a new set of trusted certificates
+      def trusted_certs_changed?
+        Digest::SHA1.hexdigest(Bosh::Director::Config.trusted_certs) != @model.vm.trusted_certs_sha1
+      end
+
+      ##
       # @return [Boolean] returns true if the any of the expected specifications
       #   differ from the ones provided by the VM
       def changed?
@@ -387,6 +399,7 @@ module Bosh::Director
           changes << :job if job_changed?
           changes << :state if state_changed?
           changes << :dns if dns_changed?
+          changes << :trusted_certs if trusted_certs_changed?
         end
         changes
       end

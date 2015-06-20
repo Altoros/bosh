@@ -17,6 +17,9 @@ require 'support/buffered_logger'
 
 Dir[File.expand_path('../support/**/*.rb', __FILE__)].each { |f| require(f) }
 
+DIRECTOR_TEST_CERTS="these\nare\nthe\ncerts"
+DIRECTOR_TEST_CERTS_SHA1=Digest::SHA1.hexdigest DIRECTOR_TEST_CERTS
+
 RSpec.configure do |config|
   config.include Bosh::Director::Test::TaskHelpers
 end
@@ -147,6 +150,7 @@ module SpecHelper
       Bosh::Director::Config.db = @db
       Bosh::Director::Config.dns_db = @dns_db
       Bosh::Director::Config.logger = logger
+      Bosh::Director::Config.trusted_certs = ''
     end
   end
 end
@@ -202,4 +206,74 @@ def check_event_log
   yield events
 end
 
+def strip_heredoc(str)
+  indent = str.scan(/^[ \t]*(?=\S)/).min.size || 0
+  str.gsub(/^[ \t]{#{indent}}/, '')
+end
 
+module ManifestHelper
+  class << self
+    def default_deployment_manifest(overrides = {})
+      {
+        'name' => 'deployment-name',
+        'releases' => [release],
+        'update' => {
+          'max_in_flight' => 10,
+          'canaries' => 2,
+          'canary_watch_time' => 1000,
+          'update_watch_time' => 1000,
+        },
+      }.merge(overrides)
+    end
+
+    def default_legacy_manifest(overrides = {})
+      (default_deployment_manifest.merge(default_iaas_manifest)).merge(overrides)
+    end
+
+    def default_iaas_manifest(overrides = {})
+      {
+        'networks' => [ManifestHelper::network],
+        'resource_pools' => [ManifestHelper::resource_pool],
+        'compilation' => {
+          'workers' => 1,
+          'network'=>'network-name',
+          'cloud_properties' => {},
+        },
+      }.merge(overrides)
+    end
+
+    def release(overrides = {})
+      {
+        'name' => 'release-name',
+        'version' => 'latest',
+      }.merge(overrides)
+    end
+
+    def network(overrides = {})
+      { 'name' => 'network-name', 'subnets' => [] }.merge(overrides)
+    end
+
+    def disk_pool(name='dp-name')
+      {'name' => name, 'disk_size' => 10000}.merge(overrides)
+    end
+
+    def job(overrides = {})
+      {
+        'name' => 'job-name',
+        'resource_pool' => 'rp-name',
+        'instances' => 1,
+        'networks' => [{'name' => 'network-name'}],
+        'templates' => [{'name' => 'template-name'}]
+      }.merge(overrides)
+    end
+
+    def resource_pool(overrides = {})
+      {
+        'name' => 'rp-name',
+        'network'=>'network-name',
+        'stemcell'=> {'name' => 'default','version'=>'1'},
+        'cloud_properties'=>{}
+      }.merge(overrides)
+    end
+  end
+end

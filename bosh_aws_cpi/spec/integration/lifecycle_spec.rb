@@ -9,13 +9,15 @@ describe Bosh::AwsCloud::Cloud do
     @access_key_id     = ENV['BOSH_AWS_ACCESS_KEY_ID']       || raise("Missing BOSH_AWS_ACCESS_KEY_ID")
     @secret_access_key = ENV['BOSH_AWS_SECRET_ACCESS_KEY']   || raise("Missing BOSH_AWS_SECRET_ACCESS_KEY")
     @subnet_id         = ENV['BOSH_AWS_SUBNET_ID']           || raise("Missing BOSH_AWS_SUBNET_ID")
+    @subnet_zone       = ENV['BOSH_AWS_SUBNET_ZONE']         || raise("Missing BOSH_AWS_SUBNET_ZONE")
     @manual_ip         = ENV['BOSH_AWS_LIFECYCLE_MANUAL_IP'] || raise("Missing BOSH_AWS_LIFECYCLE_MANUAL_IP")
   end
 
-  let(:instance_type_with_ephemeral) { ENV.fetch('BOSH_AWS_INSTANCE_TYPE', 'm3.medium') }
+  let(:instance_type_with_ephemeral)    { ENV.fetch('BOSH_AWS_INSTANCE_TYPE', 'm3.medium') }
   let(:instance_type_without_ephemeral) { ENV.fetch('BOSH_AWS_INSTANCE_TYPE_WITHOUT_EPHEMERAL', 't2.small') }
+  let(:default_key_name)                { ENV.fetch('BOSH_AWS_DEFAULT_KEY_NAME', 'bosh')}
+  let(:ami)                             { ENV.fetch('BOSH_AWS_IMAGE_ID', 'ami-b66ed3de') }
   let(:instance_type) { instance_type_with_ephemeral }
-  let(:ami) { ENV.fetch('BOSH_AWS_IMAGE_ID', 'ami-b66ed3de') }
   let(:vm_metadata) { { deployment: 'deployment', job: 'cpi_spec', index: '0', delete_me: 'please' } }
   let(:disks) { [] }
   let(:network_spec) { {} }
@@ -30,10 +32,11 @@ describe Bosh::AwsCloud::Cloud do
     described_class.new(
       'aws' => {
         'region' => 'us-east-1',
-        'default_key_name' => 'bosh',
+        'default_key_name' => default_key_name,
         'fast_path_delete' => 'yes',
         'access_key_id' => @access_key_id,
         'secret_access_key' => @secret_access_key,
+        'default_availability_zone' => @subnet_zone
       },
       'registry' => {
         'endpoint' => 'fake',
@@ -63,28 +66,30 @@ describe Bosh::AwsCloud::Cloud do
 
   extend Bosh::Cpi::CompatibilityHelpers
 
-  # Pass in *real* previously terminated instance id
-  # instead of just a made-up instance id
-  # because AWS returns Malformed error
-  # for instance ids that are not proper AWS hashed values.
-  it_can_delete_non_existent_vm 'i-49f9f169'
+  describe 'deleting things that no longer exist' do
+    it 'raises the appropriate Clouds::Error' do
+      # pass in *real* previously deleted ids instead of made up ones
+      # because AWS returns Malformed/Invalid errors for fake ids
+      expect {
+        cpi.delete_vm('i-49f9f169')
+      }.to raise_error Bosh::Clouds::VMNotFound
 
-  describe 'ec2' do
+      expect {
+        cpi.delete_disk('vol-4c68780b')
+      }.to raise_error Bosh::Clouds::DiskNotFound
+    end
+  end
+
+  context 'manual networking' do
     let(:network_spec) do
       {
         'default' => {
-          'type' => 'dynamic',
-          'cloud_properties' => {}
+          'type' => 'manual',
+          'ip' => @manual_ip, # use different IP to avoid race condition
+          'cloud_properties' => { 'subnet' => @subnet_id }
         }
-      }
-    end
 
-    describe 'VM lifecycle with light stemcells' do
-      it 'exercises vm lifecycle with light stemcell' do
-        expect {
-          vm_lifecycle
-        }.not_to raise_error
-      end
+      }
     end
 
     context 'without existing disks' do
@@ -125,27 +130,12 @@ describe Bosh::AwsCloud::Cloud do
       end
     end
 
-    describe 'disk encryption' do
-      it 'should create encrypted disks' do
-        vm_lifecycle do |instance_id|
-          volume_id = cpi.create_disk(2048, {'encrypted' => true}, instance_id)
-          expect(volume_id).not_to be_nil
-          encrypted_volume = cpi.ec2.volumes[volume_id]
-          expect(encrypted_volume.encrypted?).to be(true)
-        end
-      end
-    end
-
     context 'with existing disks' do
       let!(:existing_volume_id) { cpi.create_disk(2048, {}) }
       let(:disks) { [existing_volume_id] }
       after  { cpi.delete_disk(existing_volume_id) if existing_volume_id }
 
-      it 'should exercise the vm lifecycle' do
-        vm_lifecycle
-      end
-
-      it 'should list the disks' do
+      it 'can excercise the vm lifecycle and list the disks' do
         vm_lifecycle do |instance_id|
           volume_id = cpi.create_disk(2048, {}, instance_id)
           expect(volume_id).not_to be_nil
@@ -157,6 +147,38 @@ describe Bosh::AwsCloud::Cloud do
             cpi.detach_disk(instance_id, volume_id)
             true
           end
+        end
+      end
+    end
+
+    it 'can create encrypted disks' do
+      vm_lifecycle do |instance_id|
+        volume_id = cpi.create_disk(2048, {'encrypted' => true}, instance_id)
+        expect(volume_id).not_to be_nil
+        encrypted_volume = cpi.ec2.volumes[volume_id]
+        expect(encrypted_volume.encrypted?).to be(true)
+      end
+    end
+
+    context 'when ephemeral_disk properties are specified' do
+      let(:resource_pool) do
+        {
+          'instance_type' => instance_type,
+          'ephemeral_disk' => {
+            'size' => 4 * 1024,
+            'type' => 'gp2'
+          }
+        }
+      end
+      let(:instance_type) { instance_type_without_ephemeral }
+
+      it 'requests ephemeral disk with the specified size' do
+        vm_lifecycle do |instance_id|
+          disks = cpi.get_disks(instance_id)
+          expect(disks.size).to eq(2)
+
+          ephemeral_volume = cpi.ec2.volumes[disks[1]]
+          expect(ephemeral_volume.size).to eq(4)
         end
       end
     end
@@ -206,44 +228,18 @@ describe Bosh::AwsCloud::Cloud do
     end
   end
 
-  describe 'vpc' do
+  context 'dynamic networking' do
     let(:network_spec) do
       {
         'default' => {
-          'type' => 'manual',
-          'ip' => @manual_ip, # use different IP to avoid race condition
+          'type' => 'dynamic',
           'cloud_properties' => { 'subnet' => @subnet_id }
         }
       }
     end
 
-    context 'without existing disks' do
-      it 'should exercise the vm lifecycle' do
-        vm_lifecycle
-      end
-    end
-
-    context 'when ephemeral_disk properties are specified' do
-      let(:resource_pool) do
-        {
-          'instance_type' => instance_type,
-          'ephemeral_disk' => {
-            'size' => 4 * 1024,
-            'type' => 'gp2'
-          }
-        }
-      end
-      let(:instance_type) { instance_type_without_ephemeral }
-
-      it 'requests ephemeral disk with the specified size' do
-        vm_lifecycle do |instance_id|
-          disks = cpi.get_disks(instance_id)
-          expect(disks.size).to eq(2)
-
-          ephemeral_volume = cpi.ec2.volumes[disks[1]]
-          expect(ephemeral_volume.size).to eq(4)
-        end
-      end
+    it 'can exercise the vm lifecycle' do
+      vm_lifecycle
     end
   end
 

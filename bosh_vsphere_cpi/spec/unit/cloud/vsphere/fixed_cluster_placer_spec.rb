@@ -31,13 +31,6 @@ module VSphereCloud
         fixed_cluster_placer.pick_ephemeral_datastore(cluster, 128)
         expect(datastore).to have_received(:allocate).with(128)
       end
-
-      it "raises if there isn't enough space" do
-        allow(cluster).to receive(:pick_ephemeral).with(128).and_return(nil)
-        expect {
-          fixed_cluster_placer.pick_ephemeral_datastore(cluster, 128)
-        }.to raise_error Bosh::Clouds::NoDiskSpace
-      end
     end
 
     describe "#pick_persistent_datastore" do

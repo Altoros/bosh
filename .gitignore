@@ -4,7 +4,9 @@
 .DS_Store
 \#*\#
 .\#*
+._*
 .bundle
+.fly_run
 .idea
 *.iml
 *.iml.bak

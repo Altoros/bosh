@@ -19,7 +19,7 @@ module Bosh::AwsCloud
       copy_root_image
 
       snapshot = volume.create_snapshot
-      ResourceWait.for_snapshot(snapshot: snapshot, state: :completed)
+      ResourceWait.for_snapshot(snapshot: snapshot, states: [:completed])
 
       params = image_params(snapshot.id)
       image = region.images.create(params)
@@ -68,7 +68,7 @@ module Bosh::AwsCloud
 
       logger.debug("stemcell copy output:\n#{result.output}")
     rescue Bosh::Exec::Error => e
-      raise Bosh::Clouds::CloudError, "Unable to copy stemcell root image: #{e.message}"
+      raise Bosh::Clouds::CloudError, "Unable to copy stemcell root image: #{e.message}\nScript output:\n#{e.output}"
     end
 
     # checks if the stemcell-copy script can be found in

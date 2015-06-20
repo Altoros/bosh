@@ -4,7 +4,7 @@ require 'bosh/dev/sandbox/main'
 
 module IntegrationExampleGroup
   def logger
-    @logger ||= Logger.new(STDOUT)
+    @logger ||= current_sandbox.logger
   end
 
   def director
@@ -55,15 +55,25 @@ module IntegrationExampleGroup
     bosh_runner.run('login admin admin')
   end
 
-  def create_and_upload_test_release
+  def upload_cloud_config(options={})
+    cloud_config_hash = options.fetch(:cloud_config_hash, Bosh::Spec::Deployments.simple_cloud_config)
+    cloud_config_manifest = yaml_file('simple', cloud_config_hash)
+    bosh_runner.run("update cloud-config #{cloud_config_manifest.path}", options)
+  end
+
+  def create_and_upload_test_release(options={})
     Dir.chdir(ClientSandbox.test_release_dir) do
-      bosh_runner.run_in_current_dir('create release')
-      bosh_runner.run_in_current_dir('upload release')
+      bosh_runner.run_in_current_dir('create release', options)
+      bosh_runner.run_in_current_dir('upload release', options)
     end
   end
 
-  def upload_stemcell
-    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')}")
+  def upload_stemcell(options={})
+    bosh_runner.run("upload stemcell #{spec_asset('valid_stemcell.tgz')} --skip-if-exists", options)
+  end
+
+  def delete_stemcell
+    bosh_runner.run("delete stemcell ubuntu-stemcell 1")
   end
 
   def set_deployment(options)
@@ -81,10 +91,12 @@ module IntegrationExampleGroup
     bosh_runner.run("#{no_track ? '--no-track ' : ''}deploy#{redact_diff ? ' --redact-diff' : ''}", options)
   end
 
-  def deploy_simple(options={})
-    target_and_login
-    create_and_upload_test_release
-    upload_stemcell
+  def deploy_from_scratch(options={})
+    target_and_login unless options.fetch(:no_login, false)
+
+    create_and_upload_test_release(options)
+    upload_stemcell(options)
+    upload_cloud_config(options) unless options[:legacy]
     deploy_simple_manifest(options)
   end
 
@@ -94,7 +106,7 @@ module IntegrationExampleGroup
 
     output, exit_code = deploy(options.merge({return_exit_code: true}))
 
-    expect($?.success?).to_not eq(options.fetch(:failure_expected, false))
+    expect(exit_code == 0).to_not eq(options.fetch(:failure_expected, false))
 
     return_exit_code ? [output, exit_code] : output
   end
@@ -112,6 +124,19 @@ module IntegrationExampleGroup
 
   def regexp(string)
     Regexp.compile(Regexp.escape(string))
+  end
+
+  def extract_agent_messages(nats_messages, agent_id)
+    nats_messages.select { |val|
+      # messages for the agent we care about
+      val[0] == "agent.#{agent_id}"
+    }.map { |val|
+      # parse JSON payload
+      JSON.parse(val[1])
+    }.flat_map { |val|
+      # extract method from messages that have it
+      val["method"] ? [val["method"]] : []
+    }
   end
 
   def format_output(out)

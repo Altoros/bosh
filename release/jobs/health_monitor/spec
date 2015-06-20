@@ -4,6 +4,7 @@ name: health_monitor
 templates:
   health_monitor_ctl:     bin/health_monitor_ctl
   health_monitor.yml.erb: config/health_monitor.yml
+  uaa.pem.erb: config/uaa.pem
 
 packages:
   - health_monitor
@@ -70,8 +71,19 @@ properties:
     default: 25555
   hm.director_account.user:
     description: User to access Bosh Director
+    default: ''
   hm.director_account.password:
     description: Password to access Bosh Director
+    default: ''
+  hm.director_account.client_id:
+    description: UAA client id to access Bosh Director
+    default: ''
+  hm.director_account.client_secret:
+    description: UAA client secret to access Bosh Director
+    default: ''
+  hm.director_account.ca_cert:
+    description: Certificate to verify UAA endpoint
+    default: ''
 
   #
   # Health Monitor Plugins options
@@ -182,3 +194,31 @@ properties:
     description: Graphite port
   hm.graphite.prefix:
     description: Prefix that will be added to all metrics sent to Graphite
+
+  #Send Heartbeats and Alerts as events to a Consul cluster
+  hm.consul_event_forwarder_enabled:
+    description: Enable Consul Plugin
+    default: false
+  hm.consul_event_forwarder.host:
+    description: Location of Consul Cluster or agent
+  hm.consul_event_forwarder.port:
+    description: Consul Port
+    default: 8500
+  hm.consul_event_forwarder.protocol:
+    description: http/https
+    default: http
+  hm.consul_event_forwarder.params:
+    description: Params for url can be used for passing ACL token
+  hm.consul_event_forwarder.namespace:
+    description: A namespace for handling multiples of the same release
+  hm.consul_event_forwarder.ttl:
+    description: A ttl time for ttl checks, if set ttl checks will be used
+  hm.consul_event_forwarder.ttl_note:
+    description: A note for ttl checks
+    default: Automatically Registered by Bosh-Monitor
+  hm.consul_event_forwarder.events:
+    description: Whether or not to use the events api
+    default: false
+  hm.consul_event_forwarder.heartbeats_as_alerts:
+    description: Should we treat all heartbeats as alerts as well?
+    default: false

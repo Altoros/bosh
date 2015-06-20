@@ -7,6 +7,29 @@ OS images are stored in S3 bucket [bosh-os-images](http://s3.amazonaws.com/bosh-
 
 Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
+* `mVdBreXVEW3jTtuPMUWm0NaQ2tmEuBkp`
+  update kernel to 3.16.0-41-generic
+
+* `mevqBoryhMFMxQa6.O_7WMsHOjxj8Ypi`
+  update libssl to 1.0.1f-1ubuntu2.15
+
+* `CXy2D8rlo7.asw2H7mzCuUmkzVr30vkc`
+  update kernel to 3.16.0-39-generic
+
+* `DjCfP9Rgj37M0R3ccOOm9._SyF5RipuC`
+  update kernel and packages
+
+* `gXS8tB8AlsACLxca1aOF.A2dJroEW9Wx`
+  update kernel
+
+* `4wantbBiSSKve58dnjaR2wSemOAM7Xiy`
+  upgrade rsyslog to version 8.x (latest version in the upstream project's repo)
+
+* `hdWMpoRhNlIYrwt61zt9Ix2mYln_hTys`
+  remove unnecessary packages to make OS image smaller
+  reduce daily and weekly cron load
+  randomize remaining cronjob start times to reduce congestion in clustered deployments
+
 * `0YARMwfbXRhCyma2hdTZTd97IlZqW3Qc`
   Add hmac-sha1 to sshd_config (required by go ssh lib)
 
@@ -116,7 +139,13 @@ Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
 ## CentOS 6.6
 
-CentOS 6.6 images have filename `bosh-centos-6_6-os-image.tgz`
+CentOS 6.6 images have filename `bosh-centos-6-os-image.tgz`
+
+* `Q43Dju2RvjPkbWakc33SAGCwrXAPGZiV`
+  update kernel and packages
+
+* `2wi4CWKxfqSLjKQp0T4IKcAPaNFNhCFG`
+  update kernel
 
 * `kkUYP.4sM_hdsn3Sfcr6ksahFpPgb2D8`
   Add hmac-sha1 to sshd_config (required by go ssh lib)
@@ -149,3 +178,31 @@ CentOS 6.6 images have filename `bosh-centos-6_6-os-image.tgz`
 
 * `6mBEQ5Gt5O6NJIFZxlyrf_05i.6s0OWF`
   CentOS 6.6
+
+
+## CentOS 7
+
+CentOS 7 images have filename `bosh-centos-7-os-image.tgz`
+
+* `00kmcew_QGZDuzgF49Z.kAPhCA7EFIfQ`
+  update packages
+
+* `1hBkiByEM5v3YhznWLQmmTdhA8eKkb3g`
+  upgrade rsyslog to version 8.x (latest version in the upstream project's repo)
+
+* `uVRZSKujJb4zU2KrtAH.xVLly3agHc7M`
+  reinstall `base` metapackage to enable proper BOSH Director operation
+
+* `0_zs2Y2A.QhW00r1tbb7Oa7XcMY3GdkW`
+  install net-tools for stemcell acceptance testing
+
+* `cNakw6wcTjEyWaZBQWTUuoeYKiuLYB3k`
+  remove unnecessary packages to make OS image smaller
+  reduce daily and weekly cron load
+  randomize remaining cronjob start times to reduce congestion in clustered deployments
+
+* `x0Y6dVzdBHSAt33zNO.aOu_QvY2pqVlT`
+  Auto-restart runsvdir
+
+* `3I9TaTJV5vUkUpGJETzqD8wsWhP2vsFE`
+  CentOS 7

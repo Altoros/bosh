@@ -60,6 +60,7 @@ module Bosh
           disks: { persistent: {} },
           networks: networks,
           vm: { name: "vm-#{agent_id}" },
+          cert: '',
           mbus: @options['nats'],
         })
 
@@ -73,7 +74,7 @@ module Bosh
 
       def delete_vm(vm_name)
         agent_pid = vm_name.to_i
-        Process.kill('INT', agent_pid)
+        Process.kill('KILL', agent_pid)
       # rubocop:disable HandleExceptions
       rescue Errno::ESRCH
       # rubocop:enable HandleExceptions
@@ -163,7 +164,7 @@ module Bosh
       def kill_agents
         vm_cids.each do |agent_pid|
           begin
-            Process.kill('INT', agent_pid.to_i)
+            Process.kill('KILL', agent_pid.to_i)
           # rubocop:disable HandleExceptions
           rescue Errno::ESRCH
           # rubocop:enable HandleExceptions

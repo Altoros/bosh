@@ -83,11 +83,6 @@ module Bosh::Cli::Command
       end
 
       director_url = normalize_url(director_url)
-      if target && director_url == normalize_url(target)
-        say("Target already set to `#{target_name.make_green}'")
-        return
-      end
-
       director = Bosh::Cli::Client::Director.new(director_url)
 
       begin
@@ -103,6 +98,13 @@ module Bosh::Cli::Command
       config.target_name = status["name"]
       config.target_version = status["version"]
       config.target_uuid = status["uuid"]
+
+      old_ca_cert_path = config.ca_cert
+      expanded_ca_cert_path = config.save_ca_cert_path(options[:ca_cert])
+      if old_ca_cert_path != expanded_ca_cert_path
+        say("Updating certificate file path to `#{expanded_ca_cert_path.to_s.make_green}'")
+        nl
+      end
 
       unless name.blank?
         config.set_alias(:target, name, director_url)

@@ -9,10 +9,11 @@ module Bosh::Spec
       @agents_base_dir = agents_base_dir
       @director_nats_port = director_nats_port
       @logger = logger
+      @nats_recording = []
     end
 
-    def vms
-      vms_details.map do |vm_data|
+    def vms(options={})
+      vms_details(options).map do |vm_data|
         Vm.new(
           @waiter,
           vm_data[:job_index],
@@ -27,17 +28,17 @@ module Bosh::Spec
     end
 
     # vm always returns a vm
-    def vm(job_name_index)
-      vm = vms.detect { |vm| vm.job_name_index == job_name_index }
+    def vm(job_name_index, options={})
+      vm = vms(options).detect { |vm| vm.job_name_index == job_name_index }
       vm || raise("Failed to find vm #{job_name_index}")
     end
 
     # wait_for_vm either returns a vm or nil after waiting for X seconds
     # (Do not add default timeout value to be more explicit in tests)
-    def wait_for_vm(job_name_index, timeout_seconds)
+    def wait_for_vm(job_name_index, timeout_seconds, options = {})
       start_time = Time.now
       loop do
-        vm = vms.detect { |vm| vm.job_name_index == job_name_index }
+        vm = vms(options).detect { |vm| vm.job_name_index == job_name_index }
         return vm if vm
         break if Time.now - start_time >= timeout_seconds
         sleep(1)
@@ -55,8 +56,29 @@ module Bosh::Spec
       parse_table(@runner.run('vms --vitals'))
     end
 
-    def vms_details
-      parse_table(@runner.run('vms --details'))
+    def vms_details(options = {})
+      parse_table(@runner.run('vms --details', options))
+    end
+
+    def start_recording_nats
+      # have to read NATS port on main thread, or the new thread hangs on startup (?!)
+      nats_uri = "nats://localhost:#{@director_nats_port}"
+
+      Thread.new do
+        EventMachine.run do
+          @nats_client = NATS.connect(uri: nats_uri) do
+            @nats_client.subscribe('>') do |msg, reply, sub|
+              @nats_recording << [sub, msg]
+            end
+          end
+        end
+      end
+    end
+
+    def finish_recording_nats
+      @nats_client.close
+      EventMachine.stop
+      @nats_recording
     end
 
     private

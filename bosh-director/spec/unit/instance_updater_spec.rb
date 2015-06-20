@@ -56,6 +56,7 @@ module Bosh::Director
     let(:persistent_disk_changed) { false }
     let(:networks_changed) { false }
     let(:dns_changed) { false }
+    let(:trusted_certs_changed) { false }
     let(:disk_currently_attached) { false }
     let(:disk_size) { 0 }
     let(:instance) do
@@ -71,6 +72,7 @@ module Bosh::Director
              persistent_disk_changed?: persistent_disk_changed,
              networks_changed?: networks_changed,
              dns_changed?: dns_changed,
+             trusted_certs_changed?: trusted_certs_changed,
              spec: instance_spec,
              disk_currently_attached?: disk_currently_attached,
              network_settings: double('NetworkSettings'),
@@ -90,36 +92,9 @@ module Bosh::Director
       let(:event_log_task) { instance_double('Bosh::Director::EventLog::Task') }
 
       it 'advances the ticker' do
-        allow(subject).to receive(:update_steps).and_return(200)
+        allow(subject).to receive(:update_steps).and_return(['dummy_step'] * 200)
         expect(event_log_task).to receive(:advance).with(0.5)
-        subject.report_progress
-      end
-    end
-
-    describe '#update_steps' do
-      context 'when neither the job nor the packages have changed' do
-        describe '#update_steps' do
-          subject { super().update_steps }
-          it { is_expected.to eq(described_class::UPDATE_STEPS) }
-        end
-      end
-
-      context 'when the job has changed' do
-        let(:job_changed) { true }
-
-        describe '#update_steps' do
-          subject { super().update_steps }
-          it { is_expected.to eq(described_class::UPDATE_STEPS + 1) }
-        end
-      end
-
-      context 'when the packages have changed' do
-        let(:packages_changed) { true }
-
-        describe '#update_steps' do
-          subject { super().update_steps }
-          it { is_expected.to eq(described_class::UPDATE_STEPS + 1) }
-        end
+        subject.report_progress(200)
       end
     end
 
@@ -158,10 +133,16 @@ module Bosh::Director
       context 'with only a dns change' do
         let(:changes) { [:dns].to_set }
 
+        before do
+          allow(subject).to receive(:current_state).and_return({'job_state' => 'running'})
+        end
+
         it 'should only call update_dns' do
+          steps = subject.update_steps
+          expect(steps.length).to eq 1
+
           expect(subject).to receive(:update_dns)
-          expect(subject).to_not receive(:step)
-          subject.update
+          steps[0].call
         end
 
         it 'does not prepare instance' do
@@ -590,6 +571,7 @@ module Bosh::Director
       context 'when DNS is not being changed' do
         it { expect(subject).to_not receive(:update_dns_a_record) }
         it { expect(subject).to_not receive(:update_dns_ptr_record) }
+        it { expect(subject).to_not receive(:flush_dns_cache) }
       end
 
       context 'when DNS is being changed' do
@@ -605,7 +587,7 @@ module Bosh::Director
           expect(subject).to receive(:update_dns_ptr_record).with('record 1', '1.1.1.1')
           expect(subject).to receive(:update_dns_a_record).with(domain, 'record 2', '2.2.2.2')
           expect(subject).to receive(:update_dns_ptr_record).with('record 2', '2.2.2.2')
-
+          expect(subject).to receive(:flush_dns_cache).once
           subject.update_dns
         end
       end

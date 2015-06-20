@@ -454,7 +454,7 @@ module VSphereCloud
             allow(Resources::Datacenter).to receive(:new).with(cloud_config).and_return(datacenter)
             allow(cloud_properties).to receive(:fetch).with('datacenters', []).and_return(datacenters)
             allow(cloud_config).to receive(:datacenter_name).with(no_args).and_return(datacenters.first['name'])
-            allow(datacenter).to receive(:clusters).with(no_args).and_return({'BOSH_CL' => cluster})
+            allow_any_instance_of(Resources::ClusterProvider).to receive(:find).and_return(cluster)
 
             placer_class = class_double('VSphereCloud::FixedClusterPlacer').as_stubbed_const
             allow(placer_class).to receive(:new).with(cluster, 'fake-drs-rules').and_return(placer)
@@ -572,7 +572,7 @@ module VSphereCloud
 
       it 'updates persistent disk' do
         expect(disk_provider).to receive(:find_and_move).
-          with('disk-cid', cluster, 'fake-datacenter', ['fake-datastore-name']).
+          with('disk-cid', cluster, datacenter, ['fake-datastore-name']).
           and_return(disk)
 
         expect(client).to receive(:reconfig_vm) do |reconfig_vm, vm_config|
@@ -902,13 +902,23 @@ module VSphereCloud
         )
       end
 
-      before do
-        allow(disk_provider).to receive(:create).with(1024).and_return(disk)
+      it 'creates disk with disk provider' do
+        expect(disk_provider).to receive(:create).with(1024, nil).and_return(disk)
+        vsphere_cloud.create_disk(1024, {})
       end
 
-      it 'creates disk with disk provider' do
-        expect(disk_provider).to receive(:create).with(1024).and_return(disk)
-        vsphere_cloud.create_disk(1024, {})
+      context 'when vm_cid is provided' do
+        let(:cluster) { instance_double('VSphereCloud::Resources::Cluster') }
+        before do
+          allow(vm).to receive(:cluster).and_return('fake-cluster')
+          allow(datacenter).to receive(:clusters).and_return({'fake-cluster' => cluster})
+        end
+
+        it 'creates disk in vm cluster' do
+          allow(vm_provider).to receive(:find).with('fake-vm-cid').and_return(vm)
+          expect(disk_provider).to receive(:create).with(1024, cluster).and_return(disk)
+          vsphere_cloud.create_disk(1024, {}, 'fake-vm-cid')
+        end
       end
     end
   end

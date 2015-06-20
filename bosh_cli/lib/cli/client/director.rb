@@ -12,7 +12,7 @@ module Bosh
     module Client
       class Director
 
-        DIRECTOR_HTTP_ERROR_CODES = [400, 403, 404, 500]
+        DIRECTOR_HTTP_ERROR_CODES = [400, 401, 403, 404, 500]
 
         API_TIMEOUT     = 86400 * 3
         CONNECT_TIMEOUT = 30
@@ -621,6 +621,7 @@ module Bosh
         def request(method, uri, content_type = nil, payload = nil, headers = {}, options = {})
           headers = headers.dup
           headers['Content-Type'] = content_type if content_type
+          headers['Host'] = @director_uri.host
 
           tmp_file = nil
           response_reader = nil
@@ -722,7 +723,8 @@ module Bosh
                Timeout::Error,
                HTTPClient::TimeoutError,
                HTTPClient::KeepAliveDisconnected,
-               OpenSSL::SSL::SSLError => e
+               OpenSSL::SSL::SSLError,
+               OpenSSL::X509::StoreError => e
           raise DirectorInaccessible, "cannot access director (#{e.message})"
 
         rescue HTTPClient::BadResponseError => e

@@ -27,7 +27,7 @@ then
     rsync -a $chroot/usr/lib/grub/x86*/ $chroot/boot/grub/
   fi
 
-elif [ -f $chroot/etc/centos-release ] # CentOS
+elif [ -d $chroot/etc/grub.d ] # GRUB 2 on CentOS 7 or Ubuntu
 then
 
   rsync -a $chroot/usr/share/grub/x86*/ $chroot/boot/grub/

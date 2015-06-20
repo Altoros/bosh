@@ -299,9 +299,9 @@ module VSphereCloud
         @logger.info("Attaching disk: #{disk_cid} on vm: #{vm_cid}")
 
         vm = vm_provider.find(vm_cid)
-
         cluster = @datacenter.clusters[vm.cluster]
-        disk = disk_provider.find_and_move(disk_cid, cluster, @datacenter.name, vm.accessible_datastores)
+
+        disk = disk_provider.find_and_move(disk_cid, cluster, @datacenter, vm.accessible_datastores)
         disk_config_spec = disk.attach_spec(vm.system_disk.controller_key)
 
         vm_config = Vim::Vm::ConfigSpec.new
@@ -366,10 +366,17 @@ module VSphereCloud
       end
     end
 
-    def create_disk(size_in_mb, cloud_properties, _ = nil)
+    def create_disk(size_in_mb, cloud_properties, vm_cid = nil)
       with_thread_name("create_disk(#{size_in_mb}, _)") do
         @logger.info("Creating disk with size: #{size_in_mb}")
-        disk = disk_provider.create(size_in_mb)
+
+        cluster = nil
+        if vm_cid
+          vm = vm_provider.find(vm_cid)
+          cluster = @datacenter.clusters[vm.cluster]
+        end
+
+        disk = disk_provider.create(size_in_mb, cluster)
         @logger.info("Created disk: #{disk.inspect}")
         disk.cid
       end
@@ -708,17 +715,14 @@ module VSphereCloud
 
       unless cluster_spec.nil?
         cluster_name = cluster_spec.keys.first
-        cluster = find_cluster(cluster_name)
-        cluster_config = cluster_spec.values.first
-        drs_rules = cluster_config.fetch('drs_rules', [])
+        spec = cluster_spec.values.first
+        cluster_config = ClusterConfig.new(cluster_name, spec)
+        cluster = Resources::ClusterProvider.new(@datacenter, @client, @logger).find(cluster_name, cluster_config)
+        drs_rules = spec.fetch('drs_rules', [])
         placer = FixedClusterPlacer.new(cluster, drs_rules)
       end
 
       placer.nil? ? @resources : placer
-    end
-
-    def find_cluster(cluster_name)
-      @datacenter.clusters[cluster_name]
     end
 
     attr_reader :config

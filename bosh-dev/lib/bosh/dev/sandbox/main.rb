@@ -11,6 +11,8 @@ require 'bosh/dev/sandbox/director_config'
 require 'bosh/dev/sandbox/port_provider'
 require 'bosh/dev/sandbox/services/director_service'
 require 'bosh/dev/sandbox/services/nginx_service'
+require 'bosh/dev/sandbox/services/connection_proxy_service'
+require 'bosh/dev/sandbox/services/uaa_service'
 require 'cloud/dummy'
 require 'logging'
 
@@ -19,11 +21,6 @@ module Bosh::Dev::Sandbox
     REPO_ROOT = File.expand_path('../../../../../', File.dirname(__FILE__))
 
     ASSETS_DIR = File.expand_path('bosh-dev/assets/sandbox', REPO_ROOT)
-
-    UAA_ASSETS_DIR = File.expand_path('spec/assets/uaa', REPO_ROOT)
-    UAA_CONFIG_DIR = File.expand_path('spec/assets', REPO_ROOT)
-
-    DIRECTOR_CONFIG = 'director_test.yml'
 
     REDIS_CONFIG = 'redis_test.conf'
     REDIS_CONF_TEMPLATE = File.join(ASSETS_DIR, 'redis_test.conf.erb')
@@ -41,14 +38,18 @@ module Bosh::Dev::Sandbox
     attr_reader :director_service
     attr_reader :port_provider
 
+    attr_reader :database_proxy
+
     alias_method :db_name, :name
     attr_reader :blobstore_storage_dir
 
-    attr_reader :logs_path
+    attr_reader :logger, :logs_path
 
     attr_reader :cpi
 
     attr_reader :nats_log_path
+
+    attr_accessor :trusted_certs
 
     def self.from_env
       db_opts = {
@@ -57,11 +58,14 @@ module Bosh::Dev::Sandbox
         password: ENV['TRAVIS'] ? '' : 'password',
       }
 
+      logger = Logging.logger(STDOUT)
+      logger.level = ENV.fetch('LOG_LEVEL', 'DEBUG')
+
       new(
         db_opts,
         ENV['DEBUG'],
         ENV['TEST_ENV_NUMBER'].to_i,
-        Logging.logger(STDOUT),
+        logger,
       )
     end
 
@@ -82,9 +86,11 @@ module Bosh::Dev::Sandbox
       setup_redis
       setup_nats
 
-      @nginx_service = NginxService.new(sandbox_root, director_port, director_ruby_port, uaa_port, @logger)
+      @uaa_service = UaaService.new(@port_provider, base_log_path, REPO_ROOT, @logger)
 
-      director_config = sandbox_path(DirectorService::DIRECTOR_CONFIG)
+      @nginx_service = NginxService.new(sandbox_root, director_port, director_ruby_port, @uaa_service.port, @logger)
+
+      director_config = sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG)
       director_tmp_path = sandbox_path('boshdir')
       @director_service = DirectorService.new(director_ruby_port, redis_port, base_log_path, director_tmp_path, director_config, @logger)
       setup_heath_monitor
@@ -96,8 +102,6 @@ module Bosh::Dev::Sandbox
       )
 
       setup_database(db_opts)
-
-      setup_uaa
 
       # Note that this is not the same object
       # as dummy cpi used inside bosh-director process
@@ -123,6 +127,8 @@ module Bosh::Dev::Sandbox
       FileUtils.rm_rf(logs_path)
       FileUtils.mkdir_p(logs_path)
 
+      @database_proxy && @database_proxy.start
+
       @redis_process.start
       @redis_socket_connector.try_to_connect
 
@@ -134,7 +140,7 @@ module Bosh::Dev::Sandbox
       @database.create_db
       @database_created = true
 
-      start_uaa if @user_authentication == 'uaa'
+      @uaa_service.start if @user_authentication == 'uaa'
 
       @director_service.start(director_config)
     end
@@ -149,6 +155,7 @@ module Bosh::Dev::Sandbox
         external_cpi_config: external_cpi_config,
         cloud_storage_dir: cloud_storage_dir,
         user_authentication: @user_authentication,
+        trusted_certs: @trusted_certs,
       }
       DirectorConfig.new(attributes, @port_provider)
     end
@@ -189,9 +196,11 @@ module Bosh::Dev::Sandbox
       @nats_process.stop
 
       @health_monitor_process.stop
-      @uaa_process.stop
+      @uaa_service.stop
 
       @database.drop_db
+      @database_proxy && @database_proxy.stop
+
       FileUtils.rm_f(dns_db_path)
       FileUtils.rm_rf(agent_tmp_path)
       FileUtils.rm_rf(blobstore_storage_dir)
@@ -227,10 +236,6 @@ module Bosh::Dev::Sandbox
       @director_port ||= @port_provider.get_port(:nginx)
     end
 
-    def uaa_port
-      @uaa_port ||= @port_provider.get_port(:uaa)
-    end
-
     def director_ruby_port
       @director_ruby_port ||= @port_provider.get_port(:director_ruby)
     end
@@ -248,6 +253,7 @@ module Bosh::Dev::Sandbox
       @external_cpi_enabled = options.fetch(:external_cpi_enabled, false)
       @director_fix_stateful_nodes = options.fetch(:director_fix_stateful_nodes, false)
       @nginx_service.reconfigure(options[:ssl_mode])
+      @uaa_service.reconfigure(options[:uaa_encryption])
     end
 
     def certificate_path
@@ -261,20 +267,9 @@ module Bosh::Dev::Sandbox
         name: 'test-cpi',
         exec_path: File.join(REPO_ROOT, 'bosh-director', 'bin', 'dummy_cpi'),
         job_path: sandbox_path(EXTERNAL_CPI),
-        config_path: sandbox_path(DIRECTOR_CONFIG),
+        config_path: sandbox_path(DirectorService::DEFAULT_DIRECTOR_CONFIG),
         env_path: ENV['PATH']
       }
-    end
-
-    def start_uaa
-      @uaa_process.start
-
-      begin
-        @uaa_socket_connector.try_to_connect(1000)
-      rescue
-        output_service_log(@uaa_process)
-        raise
-      end
     end
 
     def do_reset
@@ -287,7 +282,7 @@ module Bosh::Dev::Sandbox
       FileUtils.rm_rf(blobstore_storage_dir)
       FileUtils.mkdir_p(blobstore_storage_dir)
 
-      start_uaa if @user_authentication == 'uaa'
+      @uaa_service.start if @user_authentication == 'uaa'
       @director_service.start(director_config)
 
       @nginx_service.restart_if_needed
@@ -322,24 +317,14 @@ module Bosh::Dev::Sandbox
       template.result(binding)
     end
 
-    DEBUG_HEADER = '*' * 20
-
-    def output_service_log(service)
-      @logger.error("#{DEBUG_HEADER} start #{service.description} stdout #{DEBUG_HEADER}")
-      @logger.error(service.stdout_contents)
-      @logger.error("#{DEBUG_HEADER} end #{service.description} stdout #{DEBUG_HEADER}")
-
-      @logger.error("#{DEBUG_HEADER} start #{service.description} stderr #{DEBUG_HEADER}")
-      @logger.error(service.stderr_contents)
-      @logger.error("#{DEBUG_HEADER} end #{service.description} stderr #{DEBUG_HEADER}")
-    end
-
 
     def setup_database(db_opts)
       if db_opts[:type] == 'mysql'
         @database = Mysql.new(@name, @logger, db_opts[:user], db_opts[:password])
       else
-        @database = Postgresql.new(@name, @logger)
+        @database = Postgresql.new(@name, @logger, @port_provider.get_port(:postgres))
+        # all postgres connections go through this proxy (for testing automatic reconnect)
+        @database_proxy = ConnectionProxyService.new("127.0.0.1", 5432, @port_provider.get_port(:postgres), @logger)
       end
     end
 
@@ -355,29 +340,6 @@ module Bosh::Dev::Sandbox
       File.join(logs_path, @name)
     end
 
-    def setup_uaa
-      uaa_ports = {
-        'cargo.servlet.port' => uaa_port,
-        'cargo.tomcat.ajp.port' => @port_provider.get_port(:uaa_tomcat),
-        'cargo.rmi.port' => @port_provider.get_port(:uaa_rmi)
-      }
-
-      arguments = uaa_ports.map { |pair| "-D#{pair.join('=')}" }
-      arguments << %W(-P cargo.port=#{uaa_port})
-
-      @uaa_process = Service.new(
-        ['./gradlew', arguments, 'run'].flatten,
-        {
-          output: "#{base_log_path}.uaa.out",
-          working_dir: UAA_ASSETS_DIR,
-          env: { 'UAA_CONFIG_PATH' => UAA_CONFIG_DIR }
-        },
-        @logger,
-      )
-
-      @uaa_socket_connector = SocketConnector.new('uaa', 'localhost', uaa_port, @logger)
-    end
-
     def setup_nats
       @nats_log_path = File.join(@logs_path, 'nats.log')
 
@@ -387,12 +349,12 @@ module Bosh::Dev::Sandbox
         @logger
       )
 
-      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @logger)
+      @nats_socket_connector = SocketConnector.new('nats', 'localhost', nats_port, @nats_log_path, @logger)
     end
 
     def setup_redis
       @redis_process = Service.new(%W[redis-server #{sandbox_path(REDIS_CONFIG)}], {}, @logger)
-      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, @logger)
+      @redis_socket_connector = SocketConnector.new('redis', 'localhost', redis_port, 'unknown', @logger)
       Bosh::Director::Config.redis_options = {host: 'localhost', port: redis_port}
     end
 

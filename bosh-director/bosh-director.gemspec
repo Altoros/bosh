@@ -28,8 +28,9 @@ Gem::Specification.new do |s|
   s.add_dependency 'bosh_openstack_cpi', "~>#{version}"
   s.add_dependency 'bosh_aws_cpi',       "~>#{version}"
   s.add_dependency 'bosh_vsphere_cpi',   "~>#{version}"
-  s.add_dependency 'bosh_vcloud_cpi',    '~>0.7.3'
+  s.add_dependency 'bosh_vcloud_cpi',    '=0.7.7'
   s.add_dependency 'eventmachine',       '~>1.0.0'
+  s.add_dependency 'fog-aws',          '<=0.1.1'
   s.add_dependency 'fog',              '~>1.27.0'
   s.add_dependency 'httpclient',       '=2.4.0'
   s.add_dependency 'logging',          '~>1.8.2'

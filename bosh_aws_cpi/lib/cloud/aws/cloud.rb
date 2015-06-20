@@ -27,11 +27,37 @@ module Bosh::AwsCloud
       validate_options
 
       @logger = Bosh::Clouds::Config.logger
+      aws_logger = @logger
+
+      @aws_params = {
+        access_key_id:     aws_properties['access_key_id'],
+        secret_access_key: aws_properties['secret_access_key'],
+        region:            aws_properties['region'],
+        ec2_endpoint:      aws_properties['ec2_endpoint'] || default_ec2_endpoint,
+        elb_endpoint:      aws_properties['elb_endpoint'] || default_elb_endpoint,
+        max_retries:       aws_properties['max_retries']  || DEFAULT_MAX_RETRIES,
+        logger:            aws_logger
+      }
+
+      %w(
+        http_read_timeout
+        http_wire_trace
+        proxy_uri
+        ssl_verify_peer
+        ssl_ca_file
+        ssl_ca_path
+      ).each do |k|
+        @aws_params[k.to_sym] = aws_properties[k] unless aws_properties[k].nil?
+      end
+
+      # AWS Ruby SDK is threadsafe but Ruby autoload isn't,
+      # so we need to trigger eager autoload while constructing CPI
+      AWS.eager_autoload!
 
       initialize_aws
       initialize_registry
 
-      elb = AWS::ELB.new
+      elb = AWS::ELB.new(@aws_params)
 
       @instance_manager = InstanceManager.new(region, registry, elb, az_selector, @logger)
 
@@ -164,13 +190,14 @@ module Bosh::AwsCloud
     # @return [String] created EBS volume id
     def create_disk(size, cloud_properties, instance_id = nil)
       with_thread_name("create_disk(#{size}, #{instance_id})") do
-        validate_disk_size(size)
+        type = validate_disk_type(cloud_properties.fetch('type', 'standard'))
+        validate_disk_size(type, size)
 
         # if the disk is created for an instance, use the same availability zone as they must match
         volume = @ec2.volumes.create(
           size: (size / 1024.0).ceil,
           availability_zone: @az_selector.select_availability_zone(instance_id),
-          volume_type: validate_disk_type(cloud_properties.fetch('type', 'standard')),
+          volume_type: type,
           encrypted: cloud_properties.fetch('encrypted', false)
         )
 
@@ -181,16 +208,20 @@ module Bosh::AwsCloud
       end
     end
 
-    def validate_disk_size(size)
+    def validate_disk_size(type, size)
       raise ArgumentError, 'disk size needs to be an integer' unless size.kind_of?(Integer)
 
       cloud_error('AWS CPI minimum disk size is 1 GiB') if size < 1024
-      cloud_error('AWS CPI maximum disk size is 1 TiB') if size > 1024 * 1000
+      if type == 'standard'
+        cloud_error('AWS CPI maximum disk size is 1 TiB') if size > 1024 * 1000
+      else
+        cloud_error('AWS CPI maximum disk size is 16 TiB') if size > 1024 * 16000
+      end
     end
 
     def validate_disk_type(type)
-      unless %w[gp2 standard].include?(type)
-        cloud_error('AWS CPI supports only gp2 or standard disk type')
+      unless %w[gp2 standard io1].include?(type)
+        cloud_error('AWS CPI supports only gp2, io1, or standard disk type')
       end
       type
     end
@@ -219,7 +250,13 @@ module Bosh::AwsCloud
         errors = [AWS::EC2::Errors::VolumeInUse, AWS::EC2::Errors::RequestLimitExceeded]
 
         Bosh::Common.retryable(tries: tries, sleep: sleep_cb, on: errors, ensure: ensure_cb) do
-          volume.delete
+          begin
+            volume.delete
+          rescue AWS::EC2::Errors::InvalidVolume::NotFound => e
+            logger.warn("Failed to delete disk '#{disk_id}' because it was not found: #{e.inspect}")
+            raise Bosh::Clouds::DiskNotFound.new(false), "Disk '#{disk_id}' not found"
+          end
+
           true # return true to only retry on Exceptions
         end
 
@@ -293,24 +330,26 @@ module Bosh::AwsCloud
     # @param [String] disk_id disk id of the disk to take the snapshot of
     # @return [String] snapshot id
     def snapshot_disk(disk_id, metadata)
+      metadata = Hash[metadata.map{|key,value| [key.to_s, value] }]
+
       with_thread_name("snapshot_disk(#{disk_id})") do
         volume = @ec2.volumes[disk_id]
         devices = []
         volume.attachments.each {|attachment| devices << attachment.device}
 
-        name = [:deployment, :job, :index].collect { |key| metadata[key] }
+        name = ['deployment', 'job', 'index'].collect { |key| metadata[key] }
         name << devices.first.split('/').last unless devices.empty?
 
         snapshot = volume.create_snapshot(name.join('/'))
         logger.info("snapshot '#{snapshot.id}' of volume '#{disk_id}' created")
 
-        [:agent_id, :instance_id, :director_name, :director_uuid].each do |key|
+        ['agent_id', 'instance_id', 'director_name', 'director_uuid'].each do |key|
           TagManager.tag(snapshot, key, metadata[key])
         end
-        TagManager.tag(snapshot, :device, devices.first) unless devices.empty?
+        TagManager.tag(snapshot, 'device', devices.first) unless devices.empty?
         TagManager.tag(snapshot, 'Name', name.join('/'))
 
-        ResourceWait.for_snapshot(snapshot: snapshot, state: :completed)
+        ResourceWait.for_snapshot(snapshot: snapshot, states: [:pending, :completed])
         snapshot.id
       end
     end
@@ -359,7 +398,7 @@ module Bosh::AwsCloud
     # we need to send the InstanceUpdater a request to do it for us
     def compare_security_groups(instance, network_spec)
       actual_group_names = instance.security_groups.collect { |sg| sg.name }
-      specified_group_names = extract_security_group_names(network_spec)
+      specified_group_names = extract_security_groups(network_spec)
       if specified_group_names.empty?
         new_group_names = Array(aws_properties["default_security_groups"])
       else
@@ -456,19 +495,21 @@ module Bosh::AwsCloud
     # @param [Hash] metadata metadata key/value pairs
     # @return [void]
     def set_vm_metadata(vm, metadata)
+      metadata = Hash[metadata.map{|key,value| [key.to_s, value] }]
+
       instance = @ec2.instances[vm]
 
       metadata.each_pair do |key, value|
         TagManager.tag(instance, key, value)
       end
 
-      job = metadata[:job]
-      index = metadata[:index]
+      job = metadata['job']
+      index = metadata['index']
 
       if job && index
         name = "#{job}/#{index}"
-      elsif metadata[:compiling]
-        name = "compiling/#{metadata[:compiling]}"
+      elsif metadata['compiling']
+        name = "compiling/#{metadata['compiling']}"
       end
       TagManager.tag(instance, "Name", name) if name
     rescue AWS::EC2::Errors::TagLimitExceeded => e
@@ -512,36 +553,11 @@ module Bosh::AwsCloud
     end
 
     def initialize_aws
-      aws_logger = logger
-      aws_params = {
-          access_key_id:     aws_properties['access_key_id'],
-          secret_access_key: aws_properties['secret_access_key'],
-          region:            aws_properties['region'],
-          ec2_endpoint:      aws_properties['ec2_endpoint'] || default_ec2_endpoint,
-          elb_endpoint:      aws_properties['elb_endpoint'] || default_elb_endpoint,
-          max_retries:       aws_properties['max_retries']  || DEFAULT_MAX_RETRIES,
-          logger:            aws_logger
-      }
-
-      %w(
-        http_read_timeout
-        http_wire_trace
-        proxy_uri
-        ssl_verify_peer
-        ssl_ca_file
-        ssl_ca_path
-      ).each do |k|
-        aws_params[k.to_sym] = aws_properties[k] unless aws_properties[k].nil?
-      end
-
-      # AWS Ruby SDK is threadsafe but Ruby autoload isn't,
-      # so we need to trigger eager autoload while constructing CPI
-      AWS.eager_autoload!
-
-      AWS.config(aws_params)
-
-      @ec2 = AWS::EC2.new
-      @region = @ec2.regions[aws_region]
+      @ec2 = AWS::EC2.new(@aws_params)
+      # @ec2.regions[] does not properly set the endpoint on the region (bug in /aws/ec2/region_collection.rb)
+      # It just returns a Region object with nothing set but the name.
+      # As a workaround use the 'each' method, which is implemented correctly
+      @region = @ec2.regions.select {|r| r.name == aws_region}.first
       @az_selector = AvailabilityZoneSelector.new(@region, aws_properties['default_availability_zone'])
     end
 
