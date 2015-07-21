@@ -17,6 +17,8 @@ module Bosh::Cli::Command
       @auto_mode = options[:auto]
       @report_mode = options[:report]
 
+      deployment_name ||= prepare_deployment_manifest(show_state: true).name
+
       if non_interactive? && !(@report_mode || @auto_mode)
         err ("Cloudcheck cannot be run in non-interactive mode\n" +
              "Please use `--auto' flag if you want automated resolutions " +
@@ -27,8 +29,8 @@ module Bosh::Cli::Command
         err("Can't use --auto and --report mode together")
       end
 
+
       say("Performing cloud check...")
-      deployment_name ||= prepare_deployment_manifest["name"]
 
       status, task_id = director.perform_cloud_scan(deployment_name)
 

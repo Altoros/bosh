@@ -7,4 +7,7 @@
 [submodule "go/src/github.com/cloudfoundry/bosh-agent"]
 	path = go/src/github.com/cloudfoundry/bosh-agent
 	url = https://github.com/allomov/bosh-agent.git
-	branch = power-2992-dev
+	branch = power-3012-dev
+[submodule "bat"]
+	path = bat
+	url = https://github.com/cloudfoundry/bosh-acceptance-tests.git

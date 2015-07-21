@@ -1,8 +1,6 @@
 ---
 http:
   port: <%= hm_port %>
-  user: admin
-  password: admin
 
 mbus:
   endpoint: nats://localhost:<%= nats_port %>
@@ -11,8 +9,8 @@ mbus:
 
 director: &director
   endpoint: <%= director_url %>
-  user: admin
-  password: admin
+  user: hm
+  password: pass
   client_id: hm
   client_secret: secret
   ca_cert: <%= certificate_path %>

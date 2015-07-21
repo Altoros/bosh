@@ -7,7 +7,7 @@ module Bosh::Director
     include Rack::Test::Methods
 
     subject(:app) { described_class.new(config) }
-    let(:config) { Config.new({}) }
+    let(:config) { Config.load_hash(Psych.load(spec_asset('test-director-config.yml'))) }
     let(:redis) { double('Redis') }
     before { allow(Api::ResourceManager).to receive(:new) }
     before { allow(BD::Config).to receive(:redis).and_return(redis) }
@@ -83,9 +83,9 @@ module Bosh::Director
       before { allow(config).to receive(:identity_provider).and_return(identity_provider) }
 
       it 'accepts read scope for routes allowing read access' do
-        authorize 'test', 'test'
+        authorize 'admin', 'admin'
         get '/'
-        expect(identity_provider.roles).to eq([:read])
+        expect(identity_provider.scope).to eq(:read)
       end
     end
   end

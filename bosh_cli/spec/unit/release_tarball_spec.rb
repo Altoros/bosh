@@ -24,6 +24,18 @@ describe Bosh::Cli::ReleaseTarball do
     end
   end
 
+  describe 'release file path contains spaces' do
+    let(:tarball_path) { spec_asset('valid_release  _dev_version.tgz') }
+    let(:unpack_dir) { Dir.mktmpdir }
+    before { FileUtils.copy spec_asset('valid_release.tgz'), tarball_path }
+    after { FileUtils.rm_rf(unpack_dir); FileUtils.rm_rf(tarball_path) }
+
+    it 'correctly unpacks' do
+      result = release_tarball.unpack
+      expect(result).to be true
+    end
+  end
+
   describe 'convert_to_old_format' do
     let(:tarball_path) { spec_asset('valid_release_dev_version.tgz') }
     let(:unpack_dir) { Dir.mktmpdir }
@@ -49,12 +61,22 @@ foo: bar
     end
   end
 
-  describe 'create_from_extracted_copy' do
+  describe 'create_from_unpacked' do
     it 'generates identical tarball when repacking with no changes' do
       tarball_path = spec_asset('release_no_version.tgz')
       release_tarball = Bosh::Cli::ReleaseTarball.new(tarball_path)
       release_tarball.unpack
       new_tar_path = Tempfile.new('newly-packed.tgz').path
+      release_tarball.create_from_unpacked(new_tar_path)
+
+      expect(new_tar_path).to have_same_tarball_contents tarball_path
+    end
+
+    it 'can create a tarball with a space in the file name' do
+      tarball_path = spec_asset('release_no_version.tgz')
+      release_tarball = Bosh::Cli::ReleaseTarball.new(tarball_path)
+      release_tarball.unpack
+      new_tar_path = Tempfile.new('newly-  packed.tgz').path
       release_tarball.create_from_unpacked(new_tar_path)
 
       expect(new_tar_path).to have_same_tarball_contents tarball_path

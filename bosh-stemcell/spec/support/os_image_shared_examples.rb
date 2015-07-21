@@ -25,6 +25,10 @@ shared_examples_for 'every OS image' do
       it { should return_exit_status(0) }
     end
 
+    describe command("grep -q .bashrc /root/.profile") do
+      it { should return_exit_status(0) }
+    end
+
     describe command("stat -c %a ~vcap") do
       it { should return_stdout("755") }
     end

@@ -1,10 +1,3 @@
-<%
-  require "yaml"
-
-  def dump_yaml(name, options)
-    YAML.dump(name => options).sub(/\A---\n/, '')
-  end
-%>
 ---
 name: <%= p('director.name') %>
 port: <%= p('director.backend_port') %>
@@ -114,28 +107,32 @@ blobstore:
     password: <%= p('blobstore.director.password') %>
 <% end %>
 
-trusted_certs: <%= JSON.dump(p('director.trusted_certs')) %>
-
-user_management: <%=
-JSON.dump({
+<%
+user_management = {
   provider: p('director.user_management.provider'),
-  options:
-  if p('director.user_management.provider') == 'uaa'
-    options = {
-       url: p('director.user_management.options.url'),
-       symmetric_key: p('director.user_management.options.symmetric_key', nil),
-       public_key: p('director.user_management.options.public_key', nil)
-    }
-    if options[:symmetric_key].nil? && options[:public_key].nil?
-      raise 'UAA provider requires symmetric or public key'
-    end
+}
 
-    options
-  else
-    {}
+if p('director.user_management.provider') == 'uaa'
+  options = {
+     url: p('director.user_management.uaa.url'),
+     symmetric_key: p('director.user_management.uaa.symmetric_key', nil),
+     public_key: p('director.user_management.uaa.public_key', nil)
+  }
+  if options[:symmetric_key].nil? && options[:public_key].nil?
+    raise 'UAA provider requires symmetric or public key'
   end
-})
+
+  user_management[:uaa] = options
+else
+  # making optional for backwards compatibility with micro bosh plugin
+  user_management[:local] = {
+    users: p('director.user_management.local.users', [])
+  }
+end
 %>
+
+user_management: <%= JSON.dump(user_management) %>
+trusted_certs: <%= JSON.dump(p('director.trusted_certs')) %>
 
 <% if_p('compiled_package_cache.options.bucket_name',
         'compiled_package_cache.options.access_key_id',
@@ -215,7 +212,7 @@ compiled_package_cache:
 <% end %>
 
 <% if_p('director.backup_destination') do |backup_destination| %>
-<%= dump_yaml('backup_destination', backup_destination) %>
+backup_destination: <%= JSON.dump(backup_destination) %>
 <% end %>
 
 cloud:
@@ -377,16 +374,16 @@ cloud:
   plugin: vcloud <% plugin = "vcloud" %>
   properties:
     vcds:
-      - url: <%= url %>
-        user: <%= user %>
-        password: <%= password %>
+      - url: <%= JSON.dump(url) %>
+        user: <%= JSON.dump(user) %>
+        password: <%= JSON.dump(password) %>
         entities:
-          organization: <%= organization %>
-          virtual_datacenter: <%= datacenter %>
-          vapp_catalog: <%= vapp_catalog %>
-          media_catalog: <%= media_catalog %>
-          vm_metadata_key: <%= vm_metadata_key %>
-          description: <%= description %>
+          organization: <%= JSON.dump(organization) %>
+          virtual_datacenter: <%= JSON.dump(datacenter) %>
+          vapp_catalog: <%= JSON.dump(vapp_catalog) %>
+          media_catalog: <%= JSON.dump(media_catalog) %>
+          vm_metadata_key: <%= JSON.dump(vm_metadata_key) %>
+          description: <%= JSON.dump(description) %>
           <% if_p('vcd.entities.control') do |control| %>
           control:
             <% if_p('vcd.entities.control.wait_max') do |wait_max| %>

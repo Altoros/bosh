@@ -21,7 +21,7 @@ module Bosh::Director
         redirect "/tasks/#{task.id}"
       end
 
-      get '/', scope: [:read] do
+      get '/', scope: :read do
         releases = Models::Release.order_by(:name.asc).map do |release|
           release_versions = release.versions_dataset.order_by(:version.asc).map do |rv|
             {
@@ -42,7 +42,22 @@ module Bosh::Director
         json_encode(releases)
       end
 
-      get '/:name', scope: [:read] do
+      post '/export', consumes: :json do
+        body_params = JSON.parse(request.body.read)
+
+        deployment_name = body_params['deployment_name']
+        release_name = body_params['release_name']
+        release_version = body_params['release_version']
+        stemcell_os = body_params['stemcell_os']
+        stemcell_version = body_params['stemcell_version']
+
+        task = @release_manager.export_release(
+            current_user, deployment_name, release_name, release_version, stemcell_os, stemcell_version)
+
+        redirect "/tasks/#{task.id}"
+      end
+
+      get '/:name', scope: :read do
         name = params[:name].to_s.strip
         release = @release_manager.find_by_name(name)
 

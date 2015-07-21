@@ -64,6 +64,23 @@ module Bosh::Director
             expect_redirect_to_queued_task(last_response)
           end
 
+          it 'allows putting job instances into different states with content_length of 0' do
+            RSpec::Matchers.define :not_to_have_body do |unexpected|
+              match { |actual| actual.read != unexpected.read }
+            end
+
+            manifest = spec_asset('test_conf.yaml')
+            allow_any_instance_of(DeploymentManager).to receive(:create_deployment).
+                with(anything(), not_to_have_body(StringIO.new(manifest)), anything(), anything()).
+                and_return(OpenStruct.new(:id => 'no_content_length'))
+            Models::Deployment.
+              create(:name => 'foo', :manifest => Psych.dump({'foo' => 'bar'}))
+            put '/foo/jobs/dea/2?state=stopped', manifest, {'CONTENT_TYPE' => 'text/yaml', 'CONTENT_LENGTH' => 0}
+
+            match = last_response.location.match(%r{/tasks/no_content_length})
+            expect(match).to_not be_nil
+          end
+
           it 'allows putting the job instance into different resurrection_paused values' do
             deployment = Models::Deployment.
                 create(:name => 'foo', :manifest => Psych.dump({'foo' => 'bar'}))
@@ -538,7 +555,7 @@ module Bosh::Director
 
           read_routes.each do |route|
             get route
-            expect(identity_provider.roles).to eq([:read])
+            expect(identity_provider.scope).to eq(:read)
           end
 
           non_read_routes = [
@@ -550,7 +567,7 @@ module Bosh::Director
 
           non_read_routes.each do |method, route|
             method(method).call(route)
-            expect(identity_provider.roles).to eq([:write])
+            expect(identity_provider.scope).to eq(:write)
           end
         end
       end

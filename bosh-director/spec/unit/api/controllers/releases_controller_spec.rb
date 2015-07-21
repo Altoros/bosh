@@ -101,6 +101,25 @@ module Bosh::Director
         end
       end
 
+      describe 'POST', '/export' do
+        before { authorize 'admin', 'admin' }
+
+        def perform
+          params = {
+              release_name: 'release-name-value',
+              release_version: 'release-version-value',
+              stemcell_os:    'bosh-stemcell-os-value',
+              stemcell_version:    'bosh-stemcell-version-value',
+          }
+          post '/export', JSON.dump(params), { 'CONTENT_TYPE' => 'application/json' }
+        end
+
+        it 'authenticated access redirect to the created task' do
+          perform
+          expect_redirect_to_queued_task(last_response)
+        end
+      end
+
       describe 'DELETE', '/<id>' do
         before { authorize 'admin', 'admin' }
 
@@ -150,7 +169,7 @@ module Bosh::Director
         end
 
         it 'accepts read scope for routes allowing read access' do
-          authorize 'test', 'test'
+          authorize 'admin', 'admin'
           read_routes = [
             '/',
             '/release-name'
@@ -158,7 +177,7 @@ module Bosh::Director
 
           read_routes.each do |route|
             get route
-            expect(identity_provider.roles).to eq([:read])
+            expect(identity_provider.scope).to eq(:read)
           end
 
           non_read_routes = [
@@ -170,7 +189,7 @@ module Bosh::Director
           non_read_routes.each do |method, route, header, header_value|
             header header, header_value
             method(method).call(route, '{}')
-            expect(identity_provider.roles).to eq([:write])
+            expect(identity_provider.scope).to eq(:write)
           end
         end
       end

@@ -6,7 +6,7 @@ module Bosh::Director
     describe Controllers::TasksController do
       include Rack::Test::Methods
 
-      subject(:app) { described_class.new(Config.new({})) }
+      subject(:app) { described_class.new(config) }
       let(:temp_dir) { Dir.mktmpdir}
       let(:test_config) do
         blobstore_dir = File.join(temp_dir, 'blobstore')
@@ -22,7 +22,7 @@ module Bosh::Director
         config
       end
 
-      before { App.new(Config.load_hash(test_config)) }
+      let(:config) { Config.load_hash(test_config) }
 
       after { FileUtils.rm_rf(temp_dir) }
 
@@ -267,6 +267,33 @@ module Bosh::Director
               expect(last_response.body).to eq('Test output soap')
             end
           end
+        end
+      end
+
+      describe 'scope' do
+        before(:each) { basic_authorize 'admin', 'admin' }
+        let(:identity_provider) { Support::TestIdentityProvider.new }
+        let(:config) do
+          config = Config.load_hash(test_config)
+          allow(config).to receive(:identity_provider).and_return(identity_provider)
+          config
+        end
+
+        it 'accepts read scope for routes allowing read access' do
+          get '/'
+          expect(identity_provider.scope).to eq(:read)
+
+          get '/task-id'
+          expect(identity_provider.scope).to eq(:read)
+
+          get '/task-id/output?type=event'
+          expect(identity_provider.scope).to eq(:read)
+
+          get '/task-id/output?type=debug'
+          expect(identity_provider.scope).to eq(:write)
+
+          get '/task-id/output?type=cpi'
+          expect(identity_provider.scope).to eq(:write)
         end
       end
     end

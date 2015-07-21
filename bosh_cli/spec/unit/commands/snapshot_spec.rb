@@ -8,6 +8,8 @@ describe Bosh::Cli::Command::Snapshot do
 
   before do
     allow(command).to receive(:director).and_return(director)
+    allow(command).to receive(:show_current_state)
+    allow(command).to receive(:prepare_deployment_manifest).and_return(double(:manifest, name: 'bosh'))
   end
 
   describe 'listing snapshot' do
@@ -25,16 +27,12 @@ describe Bosh::Cli::Command::Snapshot do
         ]}
 
         it 'list all snapshots for the deployment' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:list_snapshots).with('bosh', nil, nil).and_return(snapshots)
 
           command.list
         end
 
         it 'list all snapshots for a job and index' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:list_snapshots).with('bosh', 'foo', '0').and_return(snapshots)
 
           command.list('foo', '0')
@@ -45,8 +43,6 @@ describe Bosh::Cli::Command::Snapshot do
         let(:snapshots) { [] }
 
         it 'should not fail' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:list_snapshots).with('bosh', nil, nil).and_return(snapshots)
 
           command.list
@@ -72,7 +68,7 @@ describe Bosh::Cli::Command::Snapshot do
 
           context 'when the user confirms taking the snapshot' do
             it 'deletes the snapshot' do
-              allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
+              allow(command).to receive(:prepare_deployment_manifest).and_return(double(:manifest, name: 'bosh'))
               expect(command).to receive(:confirmed?).with("Are you sure you want to take a snapshot of all deployment `bosh'?").and_return(true)
 
               expect(director).to receive(:take_snapshot).with('bosh', nil, nil)
@@ -83,7 +79,7 @@ describe Bosh::Cli::Command::Snapshot do
 
           context 'when the user does not confirms taking the snapshot' do
             it 'does not delete the snapshot' do
-              allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
+              allow(command).to receive(:prepare_deployment_manifest).and_return(double(:manifest, name: 'bosh'))
               expect(command).to receive(:confirmed?).with("Are you sure you want to take a snapshot of all deployment `bosh'?").and_return(false)
 
               expect(director).not_to receive(:take_snapshot)
@@ -99,8 +95,6 @@ describe Bosh::Cli::Command::Snapshot do
           end
 
           it 'takes the snapshot' do
-            allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
             expect(director).to receive(:take_snapshot).with('bosh', nil, nil)
 
             command.take()
@@ -110,8 +104,6 @@ describe Bosh::Cli::Command::Snapshot do
 
       context 'for a job and index' do
         it 'takes the snapshot' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:take_snapshot).with('bosh', 'foo', '0')
 
           command.take('foo', '0')
@@ -136,7 +128,6 @@ describe Bosh::Cli::Command::Snapshot do
 
         context 'when the user confirms the snapshot deletion' do
           it 'deletes the snapshot' do
-            allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
             expect(command).to receive(:confirmed?).with("Are you sure you want to delete snapshot `snap0a'?").and_return(true)
 
             expect(director).to receive(:delete_snapshot).with('bosh', 'snap0a')
@@ -147,7 +138,6 @@ describe Bosh::Cli::Command::Snapshot do
 
         context 'when the user does not confirms the snapshot deletion' do
           it 'does not delete the snapshot' do
-            allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
             expect(command).to receive(:confirmed?).with("Are you sure you want to delete snapshot `snap0a'?").and_return(false)
 
             expect(director).not_to receive(:delete_snapshot)
@@ -163,8 +153,6 @@ describe Bosh::Cli::Command::Snapshot do
         end
 
         it 'deletes the snapshot' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:delete_snapshot).with('bosh', 'snap0a')
 
           command.delete('snap0a')
@@ -189,7 +177,6 @@ describe Bosh::Cli::Command::Snapshot do
 
         context 'when the user confirms the snapshot deletion' do
           it 'deletes all snapshots' do
-            allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
             expect(command).to receive(:confirmed?)
                 .with("Are you sure you want to delete all snapshots of deployment `bosh'?").and_return(true)
 
@@ -201,7 +188,6 @@ describe Bosh::Cli::Command::Snapshot do
 
         context 'when the user does not confirms the snapshot deletion' do
           it 'does not delete snapshots' do
-            allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
             expect(command).to receive(:confirmed?)
                 .with("Are you sure you want to delete all snapshots of deployment `bosh'?").and_return(false)
 
@@ -218,8 +204,6 @@ describe Bosh::Cli::Command::Snapshot do
         end
 
         it 'deletes all snapshots' do
-          allow(command).to receive(:prepare_deployment_manifest).and_return({'name' => 'bosh'})
-
           expect(director).to receive(:delete_all_snapshots).with('bosh')
 
           command.delete_all

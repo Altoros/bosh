@@ -44,19 +44,24 @@ module Bosh
           'version' => version.to_s,
           'bosh_protocol' => 1,
           'sha1' => image_checksum,
-          'cloud_properties' => {
-            'name' => stemcell_name,
-            'version' => version.to_s,
-            'infrastructure' => infrastructure.name,
-            'hypervisor' => infrastructure.hypervisor,
-            'disk' => disk_size,
-            'disk_format' => disk_format,
-            'container_format' => 'bare',
-            'os_type' => 'linux',
-            'os_distro' => definition.operating_system.name,
-            'architecture' => architecture,
-          }.merge(infrastructure.additional_cloud_properties)
+          'operating_system' => "#{definition.operating_system.name}-#{definition.operating_system.version}",
+          'cloud_properties' => manifest_cloud_properties(disk_format, infrastructure, stemcell_name, architecture)
         }
+      end
+
+      def manifest_cloud_properties(disk_format, infrastructure, stemcell_name, architecture)
+        {
+          'name' => stemcell_name,
+          'version' => version.to_s,
+          'infrastructure' => infrastructure.name,
+          'hypervisor' => infrastructure.hypervisor,
+          'disk' => disk_size,
+          'disk_format' => disk_format,
+          'container_format' => 'bare',
+          'os_type' => 'linux',
+          'os_distro' => definition.operating_system.name,
+          'architecture' => architecture,
+        }.merge(infrastructure.additional_cloud_properties)
       end
 
       def create_tarball(disk_format)

@@ -165,10 +165,10 @@ module Bosh::Director
       end
 
       it 'accepts read scope for routes allowing read access' do
-        authorize 'test', 'test'
+        authorize 'admin', 'admin'
 
         get '/'
-        expect(identity_provider.roles).to eq([:read])
+        expect(identity_provider.scope).to eq(:read)
 
         non_read_routes = [
           [:post, '/', 'Content-Type', 'application/json'],
@@ -179,7 +179,7 @@ module Bosh::Director
         non_read_routes.each do |method, route, header, header_value|
           header header, header_value
           method(method).call(route, '{}')
-          expect(identity_provider.roles).to eq([:write])
+          expect(identity_provider.scope).to eq(:write)
         end
       end
     end

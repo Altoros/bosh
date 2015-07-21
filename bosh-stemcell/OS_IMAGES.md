@@ -7,6 +7,21 @@ OS images are stored in S3 bucket [bosh-os-images](http://s3.amazonaws.com/bosh-
 
 Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 
+* `Hd33DvSkQIgfJhXz0nNeaYxALZe2O0FO`
+  update kernel to 3.19.0-22-generic
+
+* `D98JkW2IWZ2npUMxo6dzidyf0IL45aUU`
+  update kernel to linux-generic-lts-vivid
+
+* Ua2BPwAV4jhl0egqdsCGujInYlIpFfGe
+  update unattended-upgrades to 0.82.1ubuntu2.3
+
+* `DRT11QyZUb3Y.tbS00W3QgAQ_lWMhVYJ`
+  update python to version python3.4 amd64 3.4.0-2ubuntu1.1
+
+* `xLfl7rZVgkXKijjY11rSOGk.AJ8KcmEV`
+  update kernel to 3.16.0-41-generic 3.16.0-41.57~14.04.1
+
 * `mVdBreXVEW3jTtuPMUWm0NaQ2tmEuBkp`
   update kernel to 3.16.0-41-generic
 
@@ -140,6 +155,12 @@ Ubuntu 14.04 images have filename `bosh-ubuntu-trusty-os-image.tgz`
 ## CentOS 6.6
 
 CentOS 6.6 images have filename `bosh-centos-6-os-image.tgz`
+
+* `gVPTz59wj9kHj1nBzzymxbhm1yvPe.Q.`
+  remove mesg from profile
+
+* `u1vhDkA5HGFmGJfb9Qg4tBQkE_AMlTOh`
+  load bashrc in non-login shell
 
 * `Q43Dju2RvjPkbWakc33SAGCwrXAPGZiV`
   update kernel and packages

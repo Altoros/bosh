@@ -60,6 +60,7 @@ module Bosh::Director
   UserImmutableUsername = err(20001)
   UserInvalid = err(20002)
   UserNameTaken = err(20003)
+  UserManagementNotSupported = err(20004)
 
   ReleaseAlreadyExists = err(30000)
   ReleaseExistingPackageHashMismatch = err(30001)
@@ -113,6 +114,7 @@ module Bosh::Director
   JobIncompatibleSpecs = err(80010)
   JobPackageCollision = err(80011)
   JobInvalidPackageSpec = err(80012)
+  JobInvalidLinkSpec = err(80013)
 
   ResourceError = err(100001)
   ResourceNotFound = err(100002, NOT_FOUND)
