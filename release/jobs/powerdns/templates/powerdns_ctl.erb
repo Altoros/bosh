@@ -13,6 +13,8 @@ start)
   echo $$ > $PIDFILE
 
   exec /var/vcap/packages/powerdns/pdns_server \
+    --setuid=$(id -u vcap) \
+    --setgid=$(id -g vcap) \
     --socket-dir=$RUN_DIR \
     --config-dir=/var/vcap/jobs/powerdns/config \
     >>$LOG_DIR/powerdns.stdout.log \
